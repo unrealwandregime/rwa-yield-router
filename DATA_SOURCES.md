@@ -1,0 +1,308 @@
+# RWA Yield Router — Production Data Sources
+
+Research snapshot: **2026-07-13 (Asia/Calcutta)**  
+Scope: source selection, route discovery, provenance, freshness, and admission rules for the six required categories.
+
+> **This is a source registry, not seed data.** The 91 records below are source-backed discovery candidates. They contain no invented APY, TVL, AUM, liquidity, fee, or risk values. A candidate must pass the admission checks in this document and produce a fresh observation before it may appear as an available route. Missing data is `UNAVAILABLE`, not zero. Stale data remains stale and is never silently carried forward as current.
+
+## 1. Non-negotiable data rules
+
+1. Prefer, in order: canonical on-chain state; official protocol/issuer API; official legal, fund, reserve, or transparency publication; licensed specialist provider; manually reviewed secondary source.
+2. A product page establishes identity, not a live metric. A historical announcement establishes neither current availability nor current performance.
+3. Canonical contract addresses come only from an issuer/protocol address registry, signed deployment artifact, official repository, or a human-reviewed official explorer link. Never infer an address from a ticker.
+4. Persist every observation with source URL/adapter, chain, contract or instrument identifier, block number or publication timestamp, retrieval timestamp, calculation version, confidence, and freshness status.
+5. Keep economics distinct:
+   - reserve income retained by a stablecoin issuer is **not** holder APY;
+   - gold price appreciation is **not** yield;
+   - vault/lending income belongs to the wrapper or protocol route, not to the base asset;
+   - quoted swap slippage and gas are estimates with explicit size, venue, block, and assumptions.
+6. Do not publish a route if redemption, transfer, KYC/accreditation, jurisdiction, minimum, lockup, or current operational state is unresolved.
+7. Do not execute transactions. Quote adapters and RPC adapters are read-only.
+
+### Status vocabulary
+
+| Status | Meaning |
+|---|---|
+| `IDENTITY_CONFIRMED` | Canonical deployment/identifier is present in a primary source. Runtime state and metrics are still required. |
+| `SOURCE_CONFIRMED` | A current official source names the product/route, but the canonical identifier must be resolved before ingestion. |
+| `ADMISSION_GATED` | Identity is credible, but legal access, exact deployment, active status, or route mechanics need human review. Never publish. |
+| `EXCLUDED` | Deprecated, suspended, closed, unsupported, or otherwise unsuitable. |
+
+### Confidence vocabulary
+
+| Confidence | Evidence |
+|---|---|
+| `VERIFIED_OFFICIAL` | Canonical issuer/protocol documentation, legal publication, address registry, or signed deployment artifact. |
+| `DIRECT_API` | Response retrieved from the official API and tied to a retrieval time. |
+| `ONCHAIN_DERIVED` | Derived from canonical contracts at a pinned block using versioned code. |
+| `ISSUER_REPORTED` | Official issuer NAV, AUM, reserve, inventory, or attestation publication. |
+| `MANUALLY_VERIFIED` | Eligibility, legal, fee, redemption, and operational details reviewed by a human. |
+| `THIRD_PARTY` | Licensed specialist/aggregator fallback; never outranks contradictory primary evidence. |
+| `ESTIMATED` | Model or quote-derived result with assumptions. |
+
+## 2. Primary source registry
+
+“Public” means technically reachable, not automatically licensed for commercial redistribution. Legal review must approve every provider's terms, attribution, storage, and display behavior.
+
+| ID | Official source | Coverage and access | Production use / operational note | Default confidence |
+|---|---|---|---|---|
+| `OND-ADDR` | [Ondo canonical addresses](https://docs.ondo.finance/addresses) | OUSG/USDY contracts across Ethereum, Polygon, Solana, XRPL, Mantle, Arbitrum and other supported chains; HTTPS/manual registry. | Denylist every address marked legacy/deprecated. Reconcile with chain bytecode and issuer status on each sync. | `VERIFIED_OFFICIAL` |
+| `OND-OUSG` | [OUSG overview](https://docs.ondo.finance/qualified-access-products/ousg/overview), [technical details](https://docs.ondo.finance/qualified-access-products/ousg/technical), [trust and security](https://docs.ondo.finance/trust-and-security) | Structure, eligibility, subscriptions/redemptions, underlying description, limits; HTTPS/manual. | Qualified-purchaser/accreditation and KYC restrictions are route-level gates. Do not hard-code promotional fee waivers. | `VERIFIED_OFFICIAL` + `MANUALLY_VERIFIED` |
+| `OND-USDY` | [USDY basics](https://docs.ondo.finance/general-access-products/usdy/basics), [Instant Manager integration](https://docs.ondo.finance/developer-guides/usdy-instant-manager-integration) | Product structure, jurisdiction/access, issuer oracle and mint/redeem integration. | USDY is not universally available; verify current issuance entity, eligibility, and chain-specific manager. | `VERIFIED_OFFICIAL` |
+| `OPENEDEN` | [TBILL documentation](https://docs.openeden.com/tbill), [contracts](https://docs.openeden.com/tbill/smart-contract-addresses), [transparency](https://docs.openeden.com/tbill/trust-and-transparency), [subscriptions](https://docs.openeden.com/tbill/subscriptions) | TBILL identity, canonical contracts/oracle, NAV/transparency and onboarding. | Prefer canonical contract/RPC reads. The old hosted subgraph is not a production dependency. KYC/whitelist is mandatory metadata. | `VERIFIED_OFFICIAL` |
+| `MATRIX-STBT` | [STBT](https://www.matrixdock.com/stbt), [wSTBT](https://www.matrixdock.com/wstbt), [underlying assets](https://www.matrixdock.com/transparency/underlying-assets) | STBT/wSTBT structure, supported chains, eligibility, reserve/transparency publications. | Resolve each current canonical contract before ingestion; bridges are separate routes with bridge risk. | `VERIFIED_OFFICIAL` + `ISSUER_REPORTED` |
+| `MIDAS` | [mTBILL](https://docs.midas.app/tokens/mtbill), [contracts](https://docs.midas.app/protocol-mechanics/smart-contracts), [transparency](https://docs.midas.app/how-does-it-work/transparency), [oracle](https://docs.midas.app/defi-integration/price-oracle) | mTBILL contracts, oracle, issuance/redemption and transparency. | Pin token, oracle, and issuance contracts independently. Check jurisdiction and live mint/redeem state. | `VERIFIED_OFFICIAL` |
+| `ANEMOY` | [Anemoy JTRSY](https://www.anemoy.io/funds/jtrsy) | Regulated short-duration Treasury fund, availability and chain claims; HTTPS/manual. | Exact current contract and investor documents must be captured before admission. | `SOURCE_CONFIRMED` |
+| `SUPERSTATE` | [Superstate funds](https://docs.superstate.com/superstate-funds) | USTB/USCC structure, eligibility and supported networks. | Qualified Purchaser and transfer restrictions are hard gates. Resolve the official share-class contract per chain. | `SOURCE_CONFIRMED` |
+| `MORPHO-API` | [Morpho API](https://docs.morpho.org/tools/offchain/api/morpho/) | Official GraphQL at `https://api.morpho.org/graphql`; vault/market identity and state. | Poll responsibly, cache, record query and retrieval time, then reconcile contracts by RPC. Public access does not itself grant redistribution rights. | `DIRECT_API` |
+| `MORPHO-VLT` | [Morpho Vault concepts](https://legacy.docs.morpho.org/morpho-vaults/concepts/overview), [Vault API reference](https://legacy.docs.morpho.org/apis/morpho-vaults/) | ERC-4626 vault mechanics and legacy API semantics. | “Legacy” documentation is mechanics/reference only; current identity comes from the current API and chain. Vault code is open source, but API-data terms still require review. | `VERIFIED_OFFICIAL` |
+| `YEARN` | [Yearn vaults](https://yearn.fi/vaults), [USDC-1 vault](https://yearn.fi/v3/1/0xbe53a109b494e5c9f97b9cd39fe969be68bf6204), [status](https://status.yearn.fi/) | Live product discovery, one canonical vault page and service status. | Do not scrape the UI for production metrics. Resolve official vault contracts, then use ERC-4626/on-chain reads. | `SOURCE_CONFIRMED` |
+| `AAVE` | [Aave introduction](https://aave.com/help/aave-101/introduction-to-aave), [networks](https://aave.com/help/aave-101/accessing-aave), [official address book](https://github.com/bgd-labs/aave-address-book), [Aave V4 launch](https://aave.com/blog/aave-v4-live-ethereum) | Canonical pool/deployment addresses and current protocol/network context; address-book package plus RPC. | Address book is MIT licensed. Filter whitelabel deployments from DAO-controlled pools; read reserve state, caps, pause/freeze flags, rates and balances at one block. | `VERIFIED_OFFICIAL` + `ONCHAIN_DERIVED` |
+| `COMPOUND` | [Compound III docs and deployments](https://docs.compound.finance/) | Official Comet deployment artifacts, market mechanics and direct contract reads. | Use repository deployment artifacts for identity and RPC for state. Verify supply pause, base asset, utilization and liquidity at runtime. | `VERIFIED_OFFICIAL` + `ONCHAIN_DERIVED` |
+| `BUIDL` | [BlackRock/Securitize BUIDL launch](https://investors.securitize.io/news/news-details/2024/BlackRock-Launches-Its-First-Tokenized-Fund-BUIDL-on-the-Ethereum-Network-03-20-2024/default.aspx) | Official structure and qualified-investor access. | Historical launch source is insufficient for a current metric. Obtain current Securitize offering docs, contract and transfer restrictions before admission. | `SOURCE_CONFIRMED` |
+| `BENJI` | [Franklin OnChain U.S. Government Money Fund](https://www.franklintempleton.com/investments/options/money-market-funds/products/29386/SINGLCLASS/franklin-on-chain-u-s-government-money-fund/FOBXX), [Benji overview](https://digitalassets.franklintempleton.com/benji/), [contracts](https://digitalassets.franklintempleton.com/benji/benji-contracts/) | Official fund NAV/yield/assets publication and supported-chain contract registry. | Ingest only dated fields and preserve share-class identity. Current prospectus/eligibility governs access. | `ISSUER_REPORTED` + `VERIFIED_OFFICIAL` |
+| `WTGXX` | [WisdomTree Government Money Market Digital Fund fact sheet](https://www.wisdomtree.com/-/media/us-media-files/documents/resource-library/fund-fact-sheets/digital/wtgxx.pdf) | Official fund facts, share class and dated performance. | PDF is point-in-time; store as a publication, never as a live API. Resolve current prospectus and platform availability. | `ISSUER_REPORTED` |
+| `UMINT` | [UBS Tokenize](https://www.ubs.com/global/en/investment-bank/tokenize.html), [uMINT launch](https://www.ubs.com/global/it/media/display-page-ndp/en-20241101-first-tokenized-investment-fund.html) | Official tokenized money-market fund identity and platform context. | Announcement is discovery evidence only; current offering documents, token identifier and access must be obtained. | `SOURCE_CONFIRMED` |
+| `USYC` | [Circle USYC](https://www.circle.com/usyc), [USYC developer overview](https://developers.circle.com/tokenized/usyc/overview) | Fund/token mechanics, on-chain oracle and subscription/redemption integration. | Non-U.S./eligibility restrictions apply. Read oracle/teller state but do not infer access from wallet location alone. | `VERIFIED_OFFICIAL` |
+| `DIGIFT` | [DigiFT DMMF launch](https://insights.digift.io/digift-launches-us-dollar-money-market-fund-token-to-offer-stablecoin-holders-an-actively-managed-yield-bearing-solution-on-chain-2/) | Official product identity and intended access. | Current offering document, contract, venue and redemption status remain admission gates. | `SOURCE_CONFIRMED` |
+| `SPIKO` | [Spiko USTBL/EUTBL and Chainlink](https://www.spiko.io/blog/spiko-chainlink-ccip), [contracts](https://tech.spiko.io/posts/spiko-smart-contracts/), [infrastructure](https://tech.spiko.io/posts/spiko-blockchain-infrastructure) | Regulated USD/EUR MMF tokens, canonical technical architecture, NAV feeds and cross-chain operation. | Resolve current share-class contracts and legal access. NAV publication cadence is issuer/calendar-aware. | `VERIFIED_OFFICIAL` |
+| `ARCHAX` | [Aberdeen USD fund on XRPL](https://archax.com/insights/archax-provides-access-to-abrdn-money-market-fund-on-the-xrp-ledger-in-collaboration-with-ripple), [Aberdeen euro fund on Algorand](https://archax.com/insights/archax-makes-abrdn-money-market-fund-accessible-and-transferable-on-algorand-blockchain-using-quantoz-eurd-electronic-money-token) | Official distribution announcements for tokenized MMF access. | Announcements lack a production-ready canonical identifier/current offering state; both routes are admission-gated. | `SOURCE_CONFIRMED` |
+| `PAXG` | [PAX Gold docs](https://docs.paxos.com/guides/stablecoin/paxg), [PAX Gold](https://www.paxos.com/pax-gold), [terms](https://www.paxos.com/terms-and-conditions/pax-gold-terms-conditions), [Solana launch](https://www.paxos.com/blog/bringing-paxg-to-solana) | Token identity, custody/redemption terms and supported networks. | Native PAXG has gold-price exposure, not holder yield. Verify chain contract and redemption eligibility. | `VERIFIED_OFFICIAL` |
+| `XAUT` | [Tether Gold FAQ](https://gold.tether.to/faq), [supported protocols/contracts](https://tether.to/en/supported-protocols/), [transparency](https://gold.tether.to/) | XAUt backing, contracts, custody/redemption and issuer reporting. | Native XAUt yield is not inferred. Store attestations as dated publications. | `VERIFIED_OFFICIAL` + `ISSUER_REPORTED` |
+| `KAU` | [Kinesis platform and KAU](https://support.kinesis.money/hc/en-gb/articles/12393881555613-What-is-the-Kinesis-Platform) | Issuer explanation of one-gram KAU and transaction-fee redistribution mechanism. | Do not publish an APY until current distribution rules, eligible balances, fees and payment history are sourced. | `SOURCE_CONFIRMED` |
+| `XAUM` | [Matrixdock](https://www.matrixdock.com/), [Ethereum/BNB cross-chain](https://www.matrixdock.com/blog/announcements/matrixdock-enables-tokenized-gold-xaum-to-move-cross-chain-with-chainlink), [Solana](https://www.matrixdock.com/blog/announcements/xaum-launches-on-solana), [BNB/Venus](https://www.matrixdock.com/blog/announcements/matrixdock-adopts-chainlink-smartdata-to-power-xaum-on-bnb-chain) | XAUm structure, supported chains, reserve/transparency context and protocol integrations. | Native token has no assumed yield. Venus lending/vault yield is a separate protocol route and needs live pool/cap/term checks. | `SOURCE_CONFIRMED` |
+| `CGO` | [ComTech Gold](https://comtechgold.com/TokenizedGold), [compliance](https://comtechgold.com/compliance), [proof of reserves](https://comtechgold.com/CgoTokenProofOfReserves) | CGO XDC identifier, gold backing, eligibility and reserve evidence. | Broad jurisdiction restrictions are a hard gate. Verify current redemption and inventory publication before display. | `VERIFIED_OFFICIAL` |
+| `CIRCLE` | [USDC](https://www.circle.com/usdc), [EURC](https://www.circle.com/eurc), [transparency](https://www.circle.com/transparency) | Stablecoin identity, supported networks, reserve reports and circulation. | Reserve income is not holder yield. Separate token supply freshness from attestation publication cadence. | `VERIFIED_OFFICIAL` + `ISSUER_REPORTED` |
+| `TETHER` | [transparency](https://tether.to/en/transparency/), [supported protocols](https://tether.to/en/supported-protocols/), [reporting cadence FAQ](https://tether.to/en/faqs/?only-questions=true&search=How-often-does-Tether-provide-its-transparency-information) | USDT contracts, circulation and dated reserve publications. | Do not treat an older reserve report as current reserves; source says circulation and reserve-report cadences differ. | `VERIFIED_OFFICIAL` + `ISSUER_REPORTED` |
+| `PAXOS-STABLE` | [PYUSD transparency](https://www.paxos.com/pyusd-transparency), [PYUSD docs](https://docs.paxos.com/guides/stablecoin/pyusd), [USDG transparency](https://www.paxos.com/usdg-transparency), [USDG docs](https://docs.paxos.com/guides/stablecoin/usdg), [regulation/transparency](https://www.paxos.com/regulation-and-transparency/) | PYUSD, USDG and USDP identity, contracts and reserve publications. | Base assets do not pay native yield unless issuer terms explicitly say so. Use exact token and issuance entity. | `VERIFIED_OFFICIAL` |
+| `RLUSD` | [Ripple stablecoin transparency](https://ripple.com/solutions/stablecoin/transparency/), [RLUSD terms](https://ripple.com/legal/stablecoin/) | RLUSD identity, reserves and legal holder economics. | Terms state no holder return/profit from reserves; native yield is `NO_NATIVE_YIELD`. | `VERIFIED_OFFICIAL` |
+| `GUSD` | [Gemini Dollar](https://www.gemini.com/dollar) | GUSD identity, reserve/audit links and redemption context. | Record each report's as-of date. No native yield unless separately wrapped/deposited. | `VERIFIED_OFFICIAL` |
+| `FDUSD` | [First Digital Labs transparency](https://www.firstdigitallabs.com/transparency) | FDUSD reserve publications and token context. | Resolve current supported contracts and issuer entity; report cadence is publication-aware. | `ISSUER_REPORTED` |
+| `SKY` | [USDS](https://sky.money/blog/what-is-usds), [sUSDS](https://sky.money/blog/what-is-susds), [sUSDS product](https://sky.money/susds) | Base USDS and separate savings wrapper/mechanism. | USDS itself does not generate yield; sUSDS is a distinct route with governance-set rate and access restrictions. | `VERIFIED_OFFICIAL` |
+| `MAKER` | [Maker documentation](https://docs.makerdao.com/), [DAI module](https://docs.makerdao.com/smart-contract-modules/dai-module) | DAI mechanics and canonical contracts. | DAI is a base cash-equivalent candidate; savings exposure must be modeled as a separate wrapper/route. | `VERIFIED_OFFICIAL` |
+| `AGORA` | [Agora transparency](https://docs.agora.finance/developer/transparency) | AUSD reserve/transparency reporting. | Store monthly reports by as-of date; resolve canonical contracts and mint/redeem access before admission. | `VERIFIED_OFFICIAL` |
+
+## 3. Market-data and infrastructure sources
+
+| ID | Source | Use | Constraints |
+|---|---|---|---|
+| `CHAINLINK` | [Data Feeds directory](https://data.chain.link/feeds) | Canonical feed discovery and on-chain price/NAV reads where the issuer/protocol names the feed. | Staleness is feed-specific: use heartbeat/deviation metadata plus chain finality; never apply one global threshold. |
+| `UNISWAP` | [V3 quoting](https://developers.uniswap.org/docs/sdks/v3/guides/swapping/quoting), [API quickstart](https://developers.uniswap.org/docs/get-started/quickstart), [V3 subgraph source](https://github.com/Uniswap/v3-subgraph) | Read-only executable-quote estimates, pool identity and liquidity cross-checks. | Quotes are `ESTIMATED`, size- and block-specific. Never sign or submit a transaction. Subgraph is GPL; hosted/API terms and keys need review. |
+| `THEGRAPH` | [GraphQL API](https://thegraph.com/docs/en/subgraphs/querying/graphql-api/), [billing](https://thegraph.com/docs/en/subgraphs/billing/) | Indexed event/history access after canonical subgraph validation. | Indexing lag must be recorded. Reconcile critical current state by RPC; configure keys, billing and query limits. |
+| `ETHERSCAN` | [API rate limits](https://docs.etherscan.io/resources/rate-limits) | Explorer/ABI/verification fallback only. | Not source of truth for current economics. Respect current per-key/per-chain limits and cache verified metadata. |
+| `RWAXYZ` | [API docs](https://docs.rwa.xyz/), [v4 API start](https://docs.rwa.xyz/api/getting-started), [pricing](https://app.rwa.xyz/pricing), [terms](https://rwa.xyz/terms-of-use) | Optional discovery/cross-check for RWA universe and market aggregates. | **Not approved by default.** Commercial display/redistribution requires an Enterprise agreement or explicit written rights; cache period and attribution must follow contract. |
+| `DEFILLAMA` | [API docs](https://defillama.com/docs/api), [terms](https://defillama.com/terms) | Optional TVL discovery/cross-check. | **Not approved by default.** Do not scrape, republish or commercially exploit data without explicit permission/license. Never override canonical protocol state. |
+
+## 4. Source precedence and reconciliation
+
+For each field, choose the first healthy compatible source, not merely the first source to respond:
+
+1. Canonical contract at a pinned finalized block.
+2. Official protocol/issuer API tied to a canonical identifier.
+3. Official issuer NAV/reserve/inventory publication with an explicit as-of time.
+4. Official legal/fund document for slowly changing eligibility and mechanics.
+5. Licensed third party for discovery or missing aggregates.
+
+If sources disagree, preserve both observations, set `CONFLICTED`, suppress the affected metric/ranking, and create a review event. Never average incompatible values. Token identity, chain, denomination, share class, price basis, block/publication time, and units must match before comparison.
+
+Every stored observation should include at least:
+
+```text
+instrument_id, route_id, metric, value, unit, status
+source_id, source_url, source_record_id, source_confidence
+chain_id, contract_address, block_number, block_timestamp
+publication_as_of, retrieved_at, expected_next_update
+calculation_method, calculation_version, input_observation_ids
+is_estimated, estimate_assumptions, stale_reason, conflict_id
+```
+
+Null/unavailable values use a reason code such as `NO_PUBLIC_SOURCE`, `AUTH_REQUIRED`, `OUTSIDE_PUBLICATION_WINDOW`, `STALE_SOURCE`, `CHAIN_UNAVAILABLE`, `NOT_APPLICABLE`, or `LEGAL_REVIEW_REQUIRED`.
+
+## 5. Freshness policy
+
+These are conservative starting defaults. Adapter configuration may tighten them, but may not make an issuer's business-day NAV look intraday.
+
+| Data class | Target refresh | Stale/overdue rule |
+|---|---:|---|
+| Canonical on-chain route state, pause/freeze/caps | 1–5 min | Three missed cycles or chain-specific finality/RPC health breach. |
+| Chainlink price/NAV feed | 1–5 min | Feed heartbeat plus configured safety margin; also reject invalid round/timestamp. |
+| DEX quote/slippage estimate | On request; cache ≤1 min | Stale after block drift or 1 min; quote size and venue are mandatory. |
+| DeFi lending APY/utilization/available liquidity | 5–15 min | 30 min, or immediately if pool is paused/frozen/capped. |
+| Vault APY/allocation/withdrawable liquidity | 15 min | 30–60 min depending strategy; on-chain withdrawal state can invalidate sooner. |
+| On-chain TVL/supply | 15–30 min | 2 h; retain block provenance. |
+| RWA NAV/share price | Issuer publication cadence | Expected business-day/calendar publication plus one grace cycle; weekends/holidays are not false outages. |
+| Issuer AUM | Daily/provider cadence | Two missed expected publications. |
+| Stablecoin circulation | Provider/on-chain cadence | Two missed cycles; never substitute reserve-report cadence. |
+| Reserve, inventory, attestation report | Issuer cadence (daily/monthly/quarterly as applicable) | Overdue only after the source-specific expected publication window. Display the as-of date prominently. |
+| Eligibility, fees, redemption, legal terms | Weekly link/content check plus event-driven review | 14 days without successful verification, or immediately on detected content/entity change. |
+| Historical rollups | Daily after source close/finality | Rebuild if input observations are corrected or conflicted. |
+
+## 6. Source-backed route discovery catalog
+
+The catalog contains **91 records**: 19 tokenized Treasury routes, 17 stablecoin vaults, 22 DeFi lending routes, 11 money-market-token routes, 10 gold-backed routes, and 12 cash-equivalent instruments. It is deliberately broader than the eventual publishable set. `SOURCE_CONFIRMED` and `ADMISSION_GATED` rows must not be seeded as available.
+
+### 6.1 `TOKENIZED_TBILL` — 19 candidates
+
+| ID | Product / route | Network / canonical identifier | Yield economics | Evidence | Status |
+|---|---|---|---|---|---|
+| `TB-01` | Ondo OUSG | Ethereum `0x1B19C19393e2d034D8Ff31ff34c81252FcBbee92` | Issuer token/share economics; use official NAV/oracle only | `OND-ADDR`, `OND-OUSG` | `IDENTITY_CONFIRMED` |
+| `TB-02` | Ondo OUSG | Polygon `0xbA11C5effA33c4D6F8f593CFA394241CfE925811` | Same instrument, chain-specific liquidity/bridge risk | `OND-ADDR`, `OND-OUSG` | `IDENTITY_CONFIRMED` |
+| `TB-03` | Ondo OUSG | Solana `i7u4r16TcsJTgq1kAG8opmVZyVnAKBwLKu6ZPMwzxNc` | Same instrument, chain-specific execution | `OND-ADDR`, `OND-OUSG` | `IDENTITY_CONFIRMED` |
+| `TB-04` | Ondo OUSG | XRPL issuer/currency per canonical registry | Same instrument, ledger-specific access | `OND-ADDR`, `OND-OUSG` | `IDENTITY_CONFIRMED` |
+| `TB-05` | Ondo USDY | Ethereum `0x96F6eF951840721AdBF46Ac996b59E0235CB985C` | Tokenized-note return; not a stablecoin reserve yield assumption | `OND-ADDR`, `OND-USDY` | `IDENTITY_CONFIRMED` |
+| `TB-06` | Ondo USDY | Mantle `0x5bE26527e817998A7206475496fDE1E68957c5A6` | Same instrument, chain-specific route | `OND-ADDR`, `OND-USDY` | `IDENTITY_CONFIRMED` |
+| `TB-07` | Ondo USDY | Solana `A1KLoBrKBde8Ty9qtNQUtq3C2ortoC3u7twggz7sEto6` | Same instrument, chain-specific route | `OND-ADDR`, `OND-USDY` | `IDENTITY_CONFIRMED` |
+| `TB-08` | Ondo USDY | Arbitrum `0x35e050d3C0eC2d29D269a8EcEa763a183bDF9A9D` | Same instrument, chain-specific route | `OND-ADDR`, `OND-USDY` | `IDENTITY_CONFIRMED` |
+| `TB-09` | OpenEden TBILL v2 | Ethereum vault `0xdd50C053C096CB04A3e3362E2b622529EC5f2e8a`; oracle `0xCe9a6626Eb99eaeA829D7fA613d5D0A2eaE45F40` | NAV/share-price return from issuer oracle | `OPENEDEN` | `IDENTITY_CONFIRMED` |
+| `TB-10` | OpenEden TBILL v3 | Arbitrum deployment from current contracts page | Same instrument/version-specific mechanics | `OPENEDEN` | `SOURCE_CONFIRMED` |
+| `TB-11` | Matrixdock STBT | Ethereum deployment from current issuer registry | Rebasing tokenized-Treasury economics | `MATRIX-STBT` | `ADMISSION_GATED` |
+| `TB-12` | Matrixdock wSTBT | Ethereum deployment from current issuer registry | Wrapped/non-rebasing STBT route | `MATRIX-STBT` | `ADMISSION_GATED` |
+| `TB-13` | Matrixdock wSTBT | BNB Chain deployment | Wrapped STBT plus bridge/chain risk | `MATRIX-STBT` | `ADMISSION_GATED` |
+| `TB-14` | Matrixdock wSTBT | Arbitrum deployment | Wrapped STBT plus bridge/chain risk | `MATRIX-STBT` | `ADMISSION_GATED` |
+| `TB-15` | Midas mTBILL | Ethereum `0xdd629e5241cbc5919847783e6c96b2de4754e438` | Issuer NAV/oracle return | `MIDAS` | `IDENTITY_CONFIRMED` |
+| `TB-16` | Midas mTBILL | Base `0xdd629e5241cbc5919847783e6c96b2de4754e438` | Same instrument, chain-specific liquidity | `MIDAS` | `IDENTITY_CONFIRMED` |
+| `TB-17` | Anemoy JTRSY | Ethereum route family; exact share contract required | Fund NAV/distribution economics | `ANEMOY` | `ADMISSION_GATED` |
+| `TB-18` | Superstate USTB | Ethereum share-class contract from current registry | Fund NAV/share economics | `SUPERSTATE` | `ADMISSION_GATED` |
+| `TB-19` | Superstate USTB | Solana share-class mint from current registry | Same fund, chain-specific execution | `SUPERSTATE` | `ADMISSION_GATED` |
+
+### 6.2 `STABLECOIN_VAULT` — 17 candidates
+
+The Morpho identities below were returned by the official GraphQL API during the 2026-07-13 research snapshot. Production must query them again and confirm ERC-4626 bytecode, asset, owner/curator, caps, queues, withdrawals and chain state. No APY/TVL response values were copied into this document.
+
+| ID | Vault | Network / canonical vault | Yield economics | Evidence | Status |
+|---|---|---|---|---|---|
+| `SV-01` | Gauntlet USDC Prime | Base `0xeE8F4eC5672F09119b96Ab6fB59C27E1b7e44b61` | Morpho lending allocations, net of vault mechanics | `MORPHO-API`, `MORPHO-VLT` | `IDENTITY_CONFIRMED` |
+| `SV-02` | Steakhouse Prime USDC | Base `0xBEEFE94c8aD530842bfE7d8B397938fFc1cb83b2` | Morpho lending allocations | `MORPHO-API`, `MORPHO-VLT` | `IDENTITY_CONFIRMED` |
+| `SV-03` | Steakhouse USDC | Base `0xbeeF010f9cb27031ad51e3333f9aF9C6B1228183` | Morpho lending allocations | `MORPHO-API`, `MORPHO-VLT` | `IDENTITY_CONFIRMED` |
+| `SV-04` | Steakhouse USDC | Ethereum `0xBEEF01735c132Ada46AA9aA4c54623cAA92A64CB` | Morpho lending allocations | `MORPHO-API`, `MORPHO-VLT` | `IDENTITY_CONFIRMED` |
+| `SV-05` | Steakhouse USDT | Ethereum `0xbEef047a543E45807105E51A8BBEFCc5950fcfBa` | Morpho lending allocations | `MORPHO-API`, `MORPHO-VLT` | `IDENTITY_CONFIRMED` |
+| `SV-06` | Gauntlet USDC Prime | Ethereum `0xdd0f28e19C1780eb6396170735D45153D261490d` | Morpho lending allocations | `MORPHO-API`, `MORPHO-VLT` | `IDENTITY_CONFIRMED` |
+| `SV-07` | Smokehouse USDT | Ethereum `0xA0804346780b4c2e3bE118ac957D1DB82F9d7484` | Morpho lending allocations | `MORPHO-API`, `MORPHO-VLT` | `IDENTITY_CONFIRMED` |
+| `SV-08` | Vault Bridge USDC | Ethereum `0xBEefb9f61CC44895d8AEc381373555a64191A9c4` | Morpho lending allocations; bridge naming warrants extra review | `MORPHO-API`, `MORPHO-VLT` | `IDENTITY_CONFIRMED` |
+| `SV-09` | Smokehouse USDC | Ethereum `0xBEeFFF209270748ddd194831b3fa287a5386f5bC` | Morpho lending allocations | `MORPHO-API`, `MORPHO-VLT` | `IDENTITY_CONFIRMED` |
+| `SV-10` | Hakutora USDC | Ethereum `0x974c8FBf4fd795F66B85B73ebC988A51F1A040a9` | Morpho lending allocations | `MORPHO-API`, `MORPHO-VLT` | `IDENTITY_CONFIRMED` |
+| `SV-11` | Gauntlet USDC RWA | Ethereum `0xA8875aaeBc4f830524e35d57F9772FfAcbdD6C45` | Morpho lending allocations; inspect every collateral market | `MORPHO-API`, `MORPHO-VLT` | `IDENTITY_CONFIRMED` |
+| `SV-12` | Gauntlet USDT Frontier | Ethereum `0x79FD640000F8563A866322483524a4b48f1Ed702` | Morpho lending allocations | `MORPHO-API`, `MORPHO-VLT` | `IDENTITY_CONFIRMED` |
+| `SV-13` | Moonwell Flagship USDC | Base `0xc1256Ae5FF1cf2719D4937adb3bbCCab2E00A2Ca` | Morpho lending allocations | `MORPHO-API`, `MORPHO-VLT` | `IDENTITY_CONFIRMED` |
+| `SV-14` | Spark USDC Vault | Base `0x7BfA7C4f149E7415b73bdeDfe609237e29CBF34A` | Morpho lending allocations | `MORPHO-API`, `MORPHO-VLT` | `IDENTITY_CONFIRMED` |
+| `SV-15` | Gauntlet USDC Core | Ethereum `0x8eB67A509616cd6A7c1B3c8C21D48FF57df3d458` | Morpho lending allocations | `MORPHO-API`, `MORPHO-VLT` | `IDENTITY_CONFIRMED` |
+| `SV-16` | Gauntlet USDT Prime | Ethereum `0x8CB3649114051cA5119141a34C200D65dc0Faa73` | Morpho lending allocations | `MORPHO-API`, `MORPHO-VLT` | `IDENTITY_CONFIRMED` |
+| `SV-17` | Yearn OG USDC | Ethereum `0xF9bdDd4A9b3A45f980e11fDDE96e16364dDBEc49` | Strategy-vault return net of vault fees | `YEARN` | `SOURCE_CONFIRMED` |
+
+### 6.3 `DEFI_LENDING` — 22 candidates
+
+Each row is a supply route, not a promise that supply is currently open. Admission requires canonical deployment resolution and live checks for pause/freeze, supply cap, base asset, available liquidity and withdrawal path.
+
+| ID | Supply route | Network | Evidence | Status |
+|---|---|---|---|---|
+| `DL-01` | Aave V3 USDC | Ethereum | `AAVE` address book + official app/network docs | `SOURCE_CONFIRMED` |
+| `DL-02` | Aave V3 USDT | Ethereum | `AAVE` | `SOURCE_CONFIRMED` |
+| `DL-03` | Aave V3 GHO | Ethereum | `AAVE` | `SOURCE_CONFIRMED` |
+| `DL-04` | Aave V3 USDC | Base | `AAVE` | `SOURCE_CONFIRMED` |
+| `DL-05` | Aave V3 USDC | Arbitrum | `AAVE` | `SOURCE_CONFIRMED` |
+| `DL-06` | Aave V3 USDC | Polygon | `AAVE` | `SOURCE_CONFIRMED` |
+| `DL-07` | Compound III USDC Comet | Ethereum | `COMPOUND` deployment artifacts | `SOURCE_CONFIRMED` |
+| `DL-08` | Compound III USDS Comet | Ethereum | `COMPOUND` | `SOURCE_CONFIRMED` |
+| `DL-09` | Compound III USDT Comet | Ethereum | `COMPOUND` | `SOURCE_CONFIRMED` |
+| `DL-10` | Compound III USDC Comet | Optimism | `COMPOUND` | `SOURCE_CONFIRMED` |
+| `DL-11` | Compound III USDT Comet | Optimism | `COMPOUND` | `SOURCE_CONFIRMED` |
+| `DL-12` | Compound III USDC Comet | Unichain | `COMPOUND` | `SOURCE_CONFIRMED` |
+| `DL-13` | Compound III USDC Comet | Polygon | `COMPOUND` | `SOURCE_CONFIRMED` |
+| `DL-14` | Compound III USDT Comet | Polygon | `COMPOUND` | `SOURCE_CONFIRMED` |
+| `DL-15` | Compound III USDbC Comet | Base | `COMPOUND` | `SOURCE_CONFIRMED` |
+| `DL-16` | Compound III USDC Comet | Base | `COMPOUND` | `SOURCE_CONFIRMED` |
+| `DL-17` | Compound III USDS Comet | Base | `COMPOUND` | `SOURCE_CONFIRMED` |
+| `DL-18` | Compound III USDC.e Comet | Arbitrum | `COMPOUND` | `SOURCE_CONFIRMED` |
+| `DL-19` | Compound III USDC Comet | Arbitrum | `COMPOUND` | `SOURCE_CONFIRMED` |
+| `DL-20` | Compound III USDT Comet | Arbitrum | `COMPOUND` | `SOURCE_CONFIRMED` |
+| `DL-21` | Compound III USDC Comet | Linea | `COMPOUND` | `SOURCE_CONFIRMED` |
+| `DL-22` | Compound III USDC Comet | Scroll | `COMPOUND` | `SOURCE_CONFIRMED` |
+
+### 6.4 `MONEY_MARKET_TOKEN` — 11 candidates
+
+| ID | Product / route | Network / platform | Economics | Evidence | Status |
+|---|---|---|---|---|---|
+| `MM-01` | BlackRock USD Institutional Digital Liquidity Fund (BUIDL) | Ethereum/Securitize | Fund distributions/share economics | `BUIDL` | `ADMISSION_GATED` |
+| `MM-02` | Franklin OnChain U.S. Government Money Fund (FOBXX/BENJI) | Stellar | Regulated fund NAV/distributions | `BENJI` | `SOURCE_CONFIRMED` |
+| `MM-03` | Franklin FOBXX/BENJI | Polygon | Same share class; chain-specific transfer/liquidity | `BENJI` | `SOURCE_CONFIRMED` |
+| `MM-04` | WisdomTree Government Money Market Digital Fund (WTGXX) | WisdomTree Prime platform | Regulated fund yield/NAV | `WTGXX` | `ADMISSION_GATED` |
+| `MM-05` | UBS USD Money Market Investment Fund Token (uMINT) | Ethereum/UBS Tokenize | Fund NAV/distribution economics | `UMINT` | `ADMISSION_GATED` |
+| `MM-06` | Circle USYC | Ethereum | Fund token/share-price economics | `USYC` | `SOURCE_CONFIRMED` |
+| `MM-07` | DigiFT U.S. Dollar Money Market Fund Token (DMMF) | DigiFT/Ethereum route | Fund NAV/distributions | `DIGIFT` | `ADMISSION_GATED` |
+| `MM-08` | Spiko U.S. T-Bills Money Market Fund (USTBL) | Ethereum | Regulated USD MMF NAV | `SPIKO` | `SOURCE_CONFIRMED` |
+| `MM-09` | Spiko E.U. T-Bills Money Market Fund (EUTBL) | Ethereum | Regulated EUR MMF NAV | `SPIKO` | `SOURCE_CONFIRMED` |
+| `MM-10` | Aberdeen tokenized USD Liquidity Fund access | XRPL via Archax | Underlying MMF economics | `ARCHAX` | `ADMISSION_GATED` |
+| `MM-11` | Aberdeen tokenized euro money-market fund access | Algorand via Archax | Underlying MMF economics | `ARCHAX` | `ADMISSION_GATED` |
+
+### 6.5 `GOLD_BACKED_TOKEN` — 10 candidates
+
+Native gold tokens must report `NO_NATIVE_YIELD` unless current issuer terms document a holder distribution. A lending or fixed-term product using gold as collateral is a separate protocol route.
+
+| ID | Product / route | Network | Economics | Evidence | Status |
+|---|---|---|---|---|---|
+| `GL-01` | Pax Gold (PAXG) native hold | Ethereum; canonical contract from Paxos docs | Gold exposure, no assumed native yield | `PAXG` | `IDENTITY_CONFIRMED` |
+| `GL-02` | Pax Gold (PAXG) native hold | Solana; canonical mint from Paxos registry | Gold exposure, no assumed native yield | `PAXG` | `SOURCE_CONFIRMED` |
+| `GL-03` | Tether Gold (XAUt) native hold | Ethereum `0x68749665FF8D2d112Fa859AA293F07A622782F38` | Gold exposure, no assumed native yield | `XAUT` | `IDENTITY_CONFIRMED` |
+| `GL-04` | Tether Gold (XAUt) native hold | BNB Chain `0x21cAef8A43163Eea865baeE23b9C2E327696A3bf` | Gold exposure, no assumed native yield | `XAUT` | `IDENTITY_CONFIRMED` |
+| `GL-05` | Kinesis Gold (KAU) | Kinesis network | One-gram gold token; issuer-described fee distribution requires separate verification | `KAU` | `ADMISSION_GATED` |
+| `GL-06` | ComTech Gold (CGO) | XDC `xdc8f9920283470f52128bf11b0c14e798be704fd15` | Gold exposure, no assumed native yield | `CGO` | `IDENTITY_CONFIRMED` |
+| `GL-07` | Matrixdock XAUm native hold | Ethereum | Gold exposure, no assumed native yield | `XAUM` | `SOURCE_CONFIRMED` |
+| `GL-08` | Matrixdock XAUm native hold | BNB Chain | Gold exposure, no assumed native yield | `XAUM` | `SOURCE_CONFIRMED` |
+| `GL-09` | Matrixdock XAUm native hold | Solana | Gold exposure, no assumed native yield | `XAUM` | `SOURCE_CONFIRMED` |
+| `GL-10` | XAUm Venus supply/fixed-term route | BNB Chain / Venus | Separate protocol lending/term yield; not native gold yield | `XAUM`; current Venus contracts/state required | `ADMISSION_GATED` |
+
+### 6.6 `CASH_EQUIVALENT` — 12 candidates
+
+These are base-asset/instrument candidates. Unless the official terms explicitly provide holder income, their native yield status is `NO_NATIVE_YIELD`; reserve income must not be displayed as APY.
+
+| ID | Instrument | Canonical source | Native holder yield treatment | Status |
+|---|---|---|---|---|
+| `CE-01` | USD Coin (USDC) | `CIRCLE` | `NO_NATIVE_YIELD`; lending/vault wrappers are separate | `SOURCE_CONFIRMED` |
+| `CE-02` | Euro Coin (EURC) | `CIRCLE` | `NO_NATIVE_YIELD`; denomination is EUR | `SOURCE_CONFIRMED` |
+| `CE-03` | Tether USD (USDT) | `TETHER` | `NO_NATIVE_YIELD`; separate circulation and reserve freshness | `SOURCE_CONFIRMED` |
+| `CE-04` | PayPal USD (PYUSD) | `PAXOS-STABLE` | `NO_NATIVE_YIELD` | `SOURCE_CONFIRMED` |
+| `CE-05` | Global Dollar (USDG) | `PAXOS-STABLE` | `NO_NATIVE_YIELD` at base-token level; any network rewards are separate | `SOURCE_CONFIRMED` |
+| `CE-06` | Pax Dollar (USDP) | `PAXOS-STABLE` | `NO_NATIVE_YIELD` | `SOURCE_CONFIRMED` |
+| `CE-07` | Ripple USD (RLUSD) | `RLUSD` | `NO_NATIVE_YIELD` per issuer terms | `SOURCE_CONFIRMED` |
+| `CE-08` | Gemini Dollar (GUSD) | `GUSD` | `NO_NATIVE_YIELD` | `SOURCE_CONFIRMED` |
+| `CE-09` | First Digital USD (FDUSD) | `FDUSD` | `NO_NATIVE_YIELD` | `SOURCE_CONFIRMED` |
+| `CE-10` | Sky Dollar (USDS) | `SKY` | Base USDS does not generate yield; sUSDS is separate | `SOURCE_CONFIRMED` |
+| `CE-11` | Dai (DAI) | `MAKER` | Base DAI has no assumed yield; savings wrappers are separate | `SOURCE_CONFIRMED` |
+| `CE-12` | Agora Dollar (AUSD) | `AGORA` | `NO_NATIVE_YIELD` unless separate route terms prove otherwise | `SOURCE_CONFIRMED` |
+
+## 7. Explicit exclusions and watchlist
+
+| Item | Decision | Reason / official evidence |
+|---|---|---|
+| Ondo legacy contracts | `EXCLUDED` | The [canonical address registry](https://docs.ondo.finance/addresses) marks legacy deployments; keep a denylist and never merge their history into current contracts without a documented migration. |
+| VNX Gold (VNXAU) | `EXCLUDED` from active routing | VNX announced [suspension of platform exchange operations effective 2026-06-30](https://vnx.li/important-notice-upcoming-suspension-of-exchange-operations-on-the-vnx-platform/). Retain only for historical analytics until official operational/redemption status is re-reviewed. |
+| Bhutan TER gold token | Watchlist only | Mentioned in an ecosystem announcement, but no sufficiently complete official offering, canonical contract, redemption and access package was located in this research pass. |
+| Backed bTokens/bIBTA | Watchlist only | [Backed API docs](https://docs.backed.fi/backed-platform/backed-api) exist, but current eligible product, contract, access and active redemption must be verified before classification/admission. |
+| Expired Pendle markets | `EXCLUDED` from active routing | A maturity-specific market is unavailable after expiry unless a new canonical market is admitted. Never roll symbols forward automatically. |
+| Any paused/frozen/capped lending market | Runtime exclusion | Official identity does not override current contract state. Route returns only after a new healthy observation and configured recovery window. |
+
+## 8. Credentials, licensing and operational checklist
+
+- RPC endpoints for every supported chain, with at least two independent providers for critical production reads.
+- API keys/budgets for The Graph, Uniswap API, explorer fallback, and any issuer-authenticated endpoint; secrets remain server-side.
+- Written legal approval for commercial use, caching and redistribution of every off-chain dataset. RWA.xyz and DefiLlama are disabled until explicit rights exist.
+- Provider-specific rate limits, backoff, circuit breakers and last-known-good storage. Last-known-good is displayed as stale, never current.
+- Contract allowlist generated from official registries and code-reviewed changes. Unknown proxy upgrades or bytecode changes trigger quarantine.
+- Publication-calendar configuration for each fund/issuer, including timezone, weekends, market holidays and expected delay.
+- Unit/decimal assertions, chain ID, symbol collision handling, share class and currency denomination tests.
+- Human legal review for KYC, accreditation, jurisdiction, transfer, redemption, lockup, minimum and tax metadata.
+- License/version inventory for open-source adapters: Aave address book is MIT; Morpho/Aave/Uniswap-related contract or subgraph repositories may use different licenses; verify each imported package rather than assuming one project-wide license.
+
+## 9. Known limitations and next verification pass
+
+1. This research establishes a broad, primary-source universe; it does **not** certify that all 91 routes are open, liquid, redeemable, or accessible to a particular user today.
+2. Several official fund/product pages do not expose a stable machine-readable API or canonical current contract. Those rows are intentionally `SOURCE_CONFIRMED`/`ADMISSION_GATED`.
+3. Morpho vault identities were checked through the official API during this snapshot; every metric must be re-fetched and every vault reconciled on-chain before use.
+4. Aave and Compound deployment families must be expanded to exact pool/Comet addresses from their official registries and verified at a finalized block. Product names alone are not adapter configuration.
+5. No live APY, TVL, AUM, NAV, liquidity, slippage, fee or reserve number is supplied here. Production values require timestamped adapter observations and the freshness policy above.
+6. Official announcements for BUIDL, uMINT, DigiFT DMMF and Archax-distributed funds are insufficient on their own for production admission; current offering documents and operational identifiers are required.
+7. Gold-token route count includes chain-specific native routes and one separate lending/term route. It does not treat gold appreciation as yield.
+8. Currency comparability must be explicit: EURC/EUTBL and other non-USD products require FX normalization with source/time provenance or must be ranked only within denomination.
+9. Commercial terms can change. Re-check terms before launch and on a scheduled basis; technical access is not a license.
+
+The next data-engineering artifact should turn only approved rows into adapter configuration, record a dry-run observation for each field, and produce an admission report showing `AVAILABLE`, `STALE`, `UNAVAILABLE`, `CONFLICTED`, or `RESTRICTED`—never a synthetic placeholder.
