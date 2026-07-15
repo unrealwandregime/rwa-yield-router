@@ -1,0 +1,37 @@
+{
+  "name": "@rwa-yield-router/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsx watch src/main.ts",
+    "lint": "eslint . --max-warnings 0",
+    "start": "node dist/main.js",
+    "test": "vitest run --config vitest.config.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@rwa-yield-router/config": "workspace:*",
+    "@rwa-yield-router/data-adapters": "workspace:*",
+    "@rwa-yield-router/database": "workspace:*",
+    "@rwa-yield-router/notifications": "workspace:*",
+    "@rwa-yield-router/observability": "workspace:*",
+    "@rwa-yield-router/risk-engine": "workspace:*",
+    "bullmq": "5.79.3",
+    "decimal.js": "10.6.0",
+    "drizzle-orm": "0.45.2",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "26.1.1",
+    "typescript": "6.0.3",
+    "vitest": "4.1.10"
+  }
+}
