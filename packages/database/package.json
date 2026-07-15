@@ -1,0 +1,48 @@
+{
+  "name": "@rwa-yield-router/database",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./schema": {
+      "types": "./src/schema/index.ts",
+      "default": "./dist/schema/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "migrations"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "db:catalog-import": "tsx src/cli/import-production-catalog.ts",
+    "db:generate": "drizzle-kit generate --config drizzle.config.ts",
+    "db:grant-admin": "tsx src/cli/grant-admin.ts",
+    "db:migrate": "tsx src/cli/migrate.ts",
+    "db:seed": "tsx src/cli/seed.ts",
+    "db:verify": "tsx src/cli/verify.ts",
+    "lint": "eslint .",
+    "test": "vitest run --config vitest.config.ts",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@rwa-yield-router/data-adapters": "workspace:*",
+    "@rwa-yield-router/risk-engine": "workspace:*",
+    "decimal.js": "10.6.0",
+    "drizzle-orm": "0.45.2",
+    "postgres": "3.4.9",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "26.1.1",
+    "drizzle-kit": "0.31.10",
+    "tsx": "4.23.1",
+    "typescript": "6.0.3",
+    "vitest": "4.1.10"
+  }
+}

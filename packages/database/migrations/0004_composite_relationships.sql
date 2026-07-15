@@ -1,0 +1,3 @@
+ALTER TABLE "product_routes" ADD CONSTRAINT "product_routes_id_product_unique" UNIQUE("id","product_id");--> statement-breakpoint
+ALTER TABLE "product_contracts" ADD CONSTRAINT "product_contracts_route_product_fk" FOREIGN KEY ("route_id","product_id") REFERENCES "public"."product_routes"("id","product_id") ON DELETE restrict ON UPDATE cascade;--> statement-breakpoint
+ALTER TABLE "route_simulation_allocations" ADD CONSTRAINT "route_simulation_allocations_candidate_fk" FOREIGN KEY ("simulation_id","route_id") REFERENCES "public"."route_simulation_candidates"("simulation_id","route_id") ON DELETE cascade ON UPDATE cascade;
