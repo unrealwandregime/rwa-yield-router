@@ -8,13 +8,13 @@ Scores are calculated at the route level so that the same underlying product can
 
 Higher scores mean higher comparative risk:
 
-| Composite score | Label |
-| ---: | --- |
-| 0-20 | Low comparative risk |
-| 21-40 | Low to moderate comparative risk |
-| 41-60 | Moderate comparative risk |
-| 61-80 | High comparative risk |
-| 81-100 | Very high comparative risk |
+| Composite score | Label                            |
+| --------------: | -------------------------------- |
+|            0-20 | Low comparative risk             |
+|           21-40 | Low to moderate comparative risk |
+|           41-60 | Moderate comparative risk        |
+|           61-80 | High comparative risk            |
+|          81-100 | Very high comparative risk       |
 
 “Low comparative risk” does not mean risk-free or safe. A score of zero is valid only when supported by applicable evidence; missing evidence is never converted to zero.
 
@@ -32,24 +32,24 @@ Higher scores mean higher comparative risk:
 
 Every applicable factor has a displayed score from 0 to 100, explanation, input metrics, source references, confidence classification, evidence coverage, and `calculatedAt` timestamp. A factor may be `UNAVAILABLE`; it must not be silently omitted or presented as zero.
 
-| Factor | What it measures | Representative evidence |
-| --- | --- | --- |
-| Liquidity | Ability to exit near the reference price without delay or material market impact | Exit depth, executable slippage by size, turnover, utilization, withdrawal capacity, market fragmentation |
-| Redemption | Ability to redeem with the issuer or protocol under stated terms | Notice period, settlement time, windows, minimums, fees, gates, suspension rights, in-kind versus cash settlement |
-| Issuer or counterparty | Failure or performance risk of an issuer, borrower set, fund vehicle, or contractual counterparty | Legal obligor, financial disclosures, reserves, bad debt, bankruptcy remoteness, diversification, incident history |
-| Custody | Loss, freeze, segregation, and custodian-concentration risk | Custodian identity, account segregation, sub-custodians, insurance scope, attestations, legal title, concentration |
-| Smart contract | Exploit or implementation risk in contracts required by the route | Audits, code age, value and time at risk, verified source, incidents, complexity, privileged functions |
-| Oracle | Manipulation, staleness, or failure of price and NAV inputs | Feed design, update cadence, deviation thresholds, fallback logic, market depth, dependency concentration |
-| Chain | Base-layer, L2, bridge, finality, and liveness risk | Uptime, reorg/finality model, sequencer controls, bridge dependency, validator concentration, incident history |
-| Stablecoin or depeg | Failure to maintain a referenced value used by the route | Backing and redemption design, deviations, liquidity, reserve evidence, dependency and collateral composition |
-| Market price | Volatility and divergence between market price and economic reference value | Premium/discount to NAV, gold-price exposure, volatility, basis, drawdown, price-discovery quality |
-| Concentration | Dependence on a small number of issuers, protocols, chains, assets, borrowers, venues, or collateral types | Exposure shares, HHI, largest component, correlated dependencies, liquidity-provider concentration |
-| Yield instability | Variability and persistence of non-incentive APY | Lookback length, volatility, downside deviation, drawdown, utilization sensitivity, source changes |
-| Incentive dependency | Reliance on temporary or volatile rewards | Incentive share of gross APY, token liquidity, announced end date, emissions schedule, reward volatility |
-| Governance and upgradeability | Risk introduced by mutable rules and privileged control | Upgrade keys, timelocks, multisig threshold and independence, emergency powers, governance participation |
-| Operational | People, process, reconciliation, key-management, service, and strategy-execution failures | Outages, reconciliations, key controls, NAV process, dependency health, incident response, strategy complexity |
-| Legal and eligibility uncertainty | Uncertainty in legal structure, rights, transferability, and user access | Terms, offering documents, jurisdiction and investor-class rules, transfer restrictions, review age, counsel status |
-| Data quality | Risk of ranking from incomplete, stale, conflicting, weak, or unverifiable evidence | Required-field coverage, freshness, source authority, cross-source agreement, provenance, adapter health |
+| Factor                            | What it measures                                                                                           | Representative evidence                                                                                             |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Liquidity                         | Ability to exit near the reference price without delay or material market impact                           | Exit depth, executable slippage by size, turnover, utilization, withdrawal capacity, market fragmentation           |
+| Redemption                        | Ability to redeem with the issuer or protocol under stated terms                                           | Notice period, settlement time, windows, minimums, fees, gates, suspension rights, in-kind versus cash settlement   |
+| Issuer or counterparty            | Failure or performance risk of an issuer, borrower set, fund vehicle, or contractual counterparty          | Legal obligor, financial disclosures, reserves, bad debt, bankruptcy remoteness, diversification, incident history  |
+| Custody                           | Loss, freeze, segregation, and custodian-concentration risk                                                | Custodian identity, account segregation, sub-custodians, insurance scope, attestations, legal title, concentration  |
+| Smart contract                    | Exploit or implementation risk in contracts required by the route                                          | Audits, code age, value and time at risk, verified source, incidents, complexity, privileged functions              |
+| Oracle                            | Manipulation, staleness, or failure of price and NAV inputs                                                | Feed design, update cadence, deviation thresholds, fallback logic, market depth, dependency concentration           |
+| Chain                             | Base-layer, L2, bridge, finality, and liveness risk                                                        | Uptime, reorg/finality model, sequencer controls, bridge dependency, validator concentration, incident history      |
+| Stablecoin or depeg               | Failure to maintain a referenced value used by the route                                                   | Backing and redemption design, deviations, liquidity, reserve evidence, dependency and collateral composition       |
+| Market price                      | Volatility and divergence between market price and economic reference value                                | Premium/discount to NAV, gold-price exposure, volatility, basis, drawdown, price-discovery quality                  |
+| Concentration                     | Dependence on a small number of issuers, protocols, chains, assets, borrowers, venues, or collateral types | Exposure shares, HHI, largest component, correlated dependencies, liquidity-provider concentration                  |
+| Yield instability                 | Variability and persistence of non-incentive APY                                                           | Lookback length, volatility, downside deviation, drawdown, utilization sensitivity, source changes                  |
+| Incentive dependency              | Reliance on temporary or volatile rewards                                                                  | Incentive share of gross APY, token liquidity, announced end date, emissions schedule, reward volatility            |
+| Governance and upgradeability     | Risk introduced by mutable rules and privileged control                                                    | Upgrade keys, timelocks, multisig threshold and independence, emergency powers, governance participation            |
+| Operational                       | People, process, reconciliation, key-management, service, and strategy-execution failures                  | Outages, reconciliations, key controls, NAV process, dependency health, incident response, strategy complexity      |
+| Legal and eligibility uncertainty | Uncertainty in legal structure, rights, transferability, and user access                                   | Terms, offering documents, jurisdiction and investor-class rules, transfer restrictions, review age, counsel status |
+| Data quality                      | Risk of ranking from incomplete, stale, conflicting, weak, or unverifiable evidence                        | Required-field coverage, freshness, source authority, cross-source agreement, provenance, adapter health            |
 
 ### Factor scoring
 
@@ -63,13 +63,13 @@ Input risk scores and the result are bounded to `[0, 100]` only after calculatio
 
 Common interpretation anchors are:
 
-| Input score | Interpretation |
-| ---: | --- |
-| 0-20 | Stronger controls or exit characteristics relative to the covered universe; residual risk remains |
-| 21-40 | Limited weaknesses with generally usable controls or liquidity |
-| 41-60 | Material dependencies, uncertainty, volatility, or exit friction |
-| 61-80 | Significant weakness, concentration, restriction, instability, or adverse history |
-| 81-100 | Severe impairment, extreme dependency, active adverse condition, or route near exclusion thresholds |
+| Input score | Interpretation                                                                                      |
+| ----------: | --------------------------------------------------------------------------------------------------- |
+|        0-20 | Stronger controls or exit characteristics relative to the covered universe; residual risk remains   |
+|       21-40 | Limited weaknesses with generally usable controls or liquidity                                      |
+|       41-60 | Material dependencies, uncertainty, volatility, or exit friction                                    |
+|       61-80 | Significant weakness, concentration, restriction, instability, or adverse history                   |
+|      81-100 | Severe impairment, extreme dependency, active adverse condition, or route near exclusion thresholds |
 
 These anchors do not replace factor-specific transformations. For example, liquidity uses executable size and slippage rather than a reviewer’s subjective label, while legal uncertainty uses sourced access rules and review age.
 
@@ -87,14 +87,14 @@ For a factor with a non-zero category weight:
 
 The v1 data-quality factor is itself calculated from:
 
-| Data-quality component | Weight |
-| --- | ---: |
-| Missing required or material inputs | 35% |
-| Freshness relative to metric-specific service level | 30% |
-| Source authority and verification state | 20% |
-| Material cross-source disagreement | 10% |
-| Provenance integrity and adapter health | 5% |
-| **Total** | **100%** |
+| Data-quality component                              |   Weight |
+| --------------------------------------------------- | -------: |
+| Missing required or material inputs                 |      35% |
+| Freshness relative to metric-specific service level |      30% |
+| Source authority and verification state             |      20% |
+| Material cross-source disagreement                  |      10% |
+| Provenance integrity and adapter health             |       5% |
+| **Total**                                           | **100%** |
 
 Freshness is evaluated against each metric’s configured cadence, not one global timeout. An overdue observation changes status to `STALE`; a missing value is never replaced with zero. Active adapter failures and unexplained source disagreement create data-quality events and may make the route ineligible for normal optimization.
 
@@ -102,25 +102,25 @@ Freshness is evaluated against each metric’s configured cadence, not one globa
 
 Weights are percentages of the composite route score. Every category totals exactly 100%. The weight table is configuration stored with the immutable methodology version; application code must validate the total before publication.
 
-| Risk factor | Tokenized T-bill | Stablecoin vault | DeFi lending | Money-market token | Gold-backed token / route | Cash-equivalent on-chain |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Liquidity | 15% | 14% | 14% | 14% | 14% | 15% |
-| Redemption | 15% | 1% | 2% | 15% | 12% | 10% |
-| Issuer or counterparty | 18% | 2% | 8% | 16% | 14% | 12% |
-| Custody | 15% | 2% | 2% | 14% | 16% | 8% |
-| Smart contract | 5% | 18% | 17% | 6% | 5% | 10% |
-| Oracle | 1% | 2% | 10% | 1% | 4% | 4% |
-| Chain | 2% | 2% | 5% | 2% | 3% | 5% |
-| Stablecoin or depeg | 0% | 12% | 8% | 2% | 0% | 10% |
-| Market price | 7% | 3% | 6% | 5% | 10% | 3% |
-| Concentration | 5% | 10% | 6% | 5% | 4% | 5% |
-| Yield instability | 1% | 10% | 5% | 3% | 2% | 5% |
-| Incentive dependency | 0% | 8% | 3% | 0% | 1% | 3% |
-| Governance and upgradeability | 1% | 6% | 6% | 1% | 2% | 3% |
-| Operational | 1% | 6% | 2% | 4% | 4% | 3% |
-| Legal and eligibility uncertainty | 10% | 1% | 1% | 8% | 6% | 2% |
-| Data quality | 4% | 3% | 5% | 4% | 3% | 2% |
-| **Total** | **100%** | **100%** | **100%** | **100%** | **100%** | **100%** |
+| Risk factor                       | Tokenized T-bill | Stablecoin vault | DeFi lending | Money-market token | Gold-backed token / route | Cash-equivalent on-chain |
+| --------------------------------- | ---------------: | ---------------: | -----------: | -----------------: | ------------------------: | -----------------------: |
+| Liquidity                         |              15% |              14% |          14% |                14% |                       14% |                      15% |
+| Redemption                        |              15% |               1% |           2% |                15% |                       12% |                      10% |
+| Issuer or counterparty            |              18% |               2% |           8% |                16% |                       14% |                      12% |
+| Custody                           |              15% |               2% |           2% |                14% |                       16% |                       8% |
+| Smart contract                    |               5% |              18% |          17% |                 6% |                        5% |                      10% |
+| Oracle                            |               1% |               2% |          10% |                 1% |                        4% |                       4% |
+| Chain                             |               2% |               2% |           5% |                 2% |                        3% |                       5% |
+| Stablecoin or depeg               |               0% |              12% |           8% |                 2% |                        0% |                      10% |
+| Market price                      |               7% |               3% |           6% |                 5% |                       10% |                       3% |
+| Concentration                     |               5% |              10% |           6% |                 5% |                        4% |                       5% |
+| Yield instability                 |               1% |              10% |           5% |                 3% |                        2% |                       5% |
+| Incentive dependency              |               0% |               8% |           3% |                 0% |                        1% |                       3% |
+| Governance and upgradeability     |               1% |               6% |           6% |                 1% |                        2% |                       3% |
+| Operational                       |               1% |               6% |           2% |                 4% |                        4% |                       3% |
+| Legal and eligibility uncertainty |              10% |               1% |           1% |                 8% |                        6% |                       2% |
+| Data quality                      |               4% |               3% |           5% |                 4% |                        3% |                       2% |
+| **Total**                         |         **100%** |         **100%** |     **100%** |           **100%** |                  **100%** |                 **100%** |
 
 Weight rationale:
 
@@ -156,18 +156,18 @@ The product label is exactly **“Comparative risk-adjusted APY.”** It is a ra
 
 All sixteen risk factors feed exactly one visible penalty group:
 
-| Penalty component | Included risk factors |
-| --- | --- |
-| `liquidityPenalty` | Liquidity |
-| `redemptionPenalty` | Redemption; legal and eligibility uncertainty |
-| `issuerPenalty` | Issuer or counterparty; operational |
-| `custodyPenalty` | Custody |
-| `smartContractPenalty` | Smart contract; oracle; chain; governance and upgradeability |
-| `concentrationPenalty` | Concentration |
-| `yieldInstabilityPenalty` | Yield instability |
-| `incentiveDependencyPenalty` | Incentive dependency |
-| `marketOrDepegPenalty` | Market price; stablecoin or depeg |
-| `dataQualityPenalty` | Data quality |
+| Penalty component            | Included risk factors                                        |
+| ---------------------------- | ------------------------------------------------------------ |
+| `liquidityPenalty`           | Liquidity                                                    |
+| `redemptionPenalty`          | Redemption; legal and eligibility uncertainty                |
+| `issuerPenalty`              | Issuer or counterparty; operational                          |
+| `custodyPenalty`             | Custody                                                      |
+| `smartContractPenalty`       | Smart contract; oracle; chain; governance and upgradeability |
+| `concentrationPenalty`       | Concentration                                                |
+| `yieldInstabilityPenalty`    | Yield instability                                            |
+| `incentiveDependencyPenalty` | Incentive dependency                                         |
+| `marketOrDepegPenalty`       | Market price; stablecoin or depeg                            |
+| `dataQualityPenalty`         | Data quality                                                 |
 
 Within a group, the group severity is the category-weighted mean of its effective factors. Its weight share is the sum of those category weights. If the share is zero, the component is `NOT_APPLICABLE` and contributes zero.
 

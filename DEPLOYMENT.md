@@ -8,17 +8,17 @@ This guide is provider-portable. Use deployment providers available in the authe
 
 ## Reference topology
 
-| Component | Production requirement | Exposure |
-| --- | --- | --- |
-| Next.js web/API | Node-compatible production host, immutable build, autoscaling, HTTPS | Public through CDN/WAF |
-| Worker/scheduler | Persistent Node.js process or managed worker with controlled concurrency | Private; health endpoint or platform process check only |
-| PostgreSQL | Managed PostgreSQL with TLS, point-in-time recovery, daily backups, direct migration connection and pooled runtime connection | Private/network restricted |
-| Redis/queue | Managed Redis with TLS, persistence appropriate to queue semantics, eviction disabled for queue keys | Private/network restricted |
-| Authentication | Mature hosted identity provider with verified production callback URLs and MFA for admins | Public provider endpoints |
-| Email | Transactional provider adapter; console transport only outside production | Worker outbound plus signed webhook inbound |
-| Telegram | Bot API adapter, disabled until owner supplies credentials | Worker outbound plus verified webhook inbound if used |
-| External data | Official/approved APIs, RPCs, subgraphs, oracles, and manually reviewed records | Worker outbound through adapter allowlists |
-| Observability | Structured log sink, metrics, uptime checks, error tracking, release identifiers | Restricted operator access |
+| Component        | Production requirement                                                                                                        | Exposure                                                |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| Next.js web/API  | Node-compatible production host, immutable build, autoscaling, HTTPS                                                          | Public through CDN/WAF                                  |
+| Worker/scheduler | Persistent Node.js process or managed worker with controlled concurrency                                                      | Private; health endpoint or platform process check only |
+| PostgreSQL       | Managed PostgreSQL with TLS, point-in-time recovery, daily backups, direct migration connection and pooled runtime connection | Private/network restricted                              |
+| Redis/queue      | Managed Redis with TLS, persistence appropriate to queue semantics, eviction disabled for queue keys                          | Private/network restricted                              |
+| Authentication   | Mature hosted identity provider with verified production callback URLs and MFA for admins                                     | Public provider endpoints                               |
+| Email            | Transactional provider adapter; console transport only outside production                                                     | Worker outbound plus signed webhook inbound             |
+| Telegram         | Bot API adapter, disabled until owner supplies credentials                                                                    | Worker outbound plus verified webhook inbound if used   |
+| External data    | Official/approved APIs, RPCs, subgraphs, oracles, and manually reviewed records                                               | Worker outbound through adapter allowlists              |
+| Observability    | Structured log sink, metrics, uptime checks, error tracking, release identifiers                                              | Restricted operator access                              |
 
 The public web service reads normalized, published data. Scheduled ingestion belongs in the worker, not request handlers. External provider failure must degrade data status without making cached public pages unavailable. Only the web/API is internet-addressable; database, Redis, worker control endpoints, and migration jobs are private.
 
@@ -26,12 +26,12 @@ The public web service reads normalized, published data. Scheduled ingestion bel
 
 Use isolated credentials, databases, Redis namespaces/instances, auth tenants, notification providers, and monitoring projects for:
 
-| Environment | Purpose | Data policy |
-| --- | --- | --- |
-| Local | Development and automated tests | Test fixtures only; no production credentials |
-| Preview | Per-change UI/API validation | Ephemeral test database or read-only sanitized snapshot; notifications sinked |
-| Staging | Migration, ingestion, E2E, security, and release-candidate verification | Sourced staging records; never deliver alerts to real users |
-| Production | Public service | Verified and published records only |
+| Environment | Purpose                                                                 | Data policy                                                                   |
+| ----------- | ----------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| Local       | Development and automated tests                                         | Test fixtures only; no production credentials                                 |
+| Preview     | Per-change UI/API validation                                            | Ephemeral test database or read-only sanitized snapshot; notifications sinked |
+| Staging     | Migration, ingestion, E2E, security, and release-candidate verification | Sourced staging records; never deliver alerts to real users                   |
+| Production  | Public service                                                          | Verified and published records only                                           |
 
 Preview builds must not connect to production PostgreSQL or Redis. Staging and production auth callbacks, cookie domains, API credentials, and webhook secrets must be distinct.
 
@@ -41,43 +41,59 @@ Preview builds must not connect to production PostgreSQL or Redis. Staging and p
 - CI builds with `pnpm install --frozen-lockfile`; production does not resolve dependencies at startup.
 - Build once per release and promote the same immutable artifact or commit SHA through environments.
 - Run containers as a non-root user with a read-only filesystem where platform support allows it. Do not bake `.env` files or secrets into images.
-- Web and worker expose the same `APP_VERSION` and `METHODOLOGY_VERSION` release metadata.
 - Run in UTC. Convert time zones only at the presentation or notification boundary.
 - Use separate least-privilege database roles for runtime and migrations.
 - Configure graceful shutdown: stop accepting work, finish or release the current job lock, close queue/database connections, and exit inside the platform termination window.
 
+The production Docker build context is the repository root:
+
+```sh
+docker build -f apps/web/Dockerfile \
+  --build-arg APP_URL=https://router.example.com \
+  --build-arg NEXT_PUBLIC_SUPABASE_URL=https://project.supabase.co \
+  --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY=public-anon-key \
+  -t rwa-yield-router-web:release .
+docker build -f apps/worker/Dockerfile -t rwa-yield-router-worker:release .
+```
+
+`APP_URL` and both public Supabase values are required web build arguments because Next.js embeds canonical metadata and browser authentication configuration during compilation. They are intentionally public values and are retained as the image's matching runtime defaults. Never pass service-role keys, database URLs, provider secrets, or notification credentials as build arguments. The release workflow reads these values from the `PRODUCTION_URL`, `NEXT_PUBLIC_SUPABASE_URL`, and `NEXT_PUBLIC_SUPABASE_ANON_KEY` GitHub repository variables and fails the web build when they are missing or invalid. Runtime secrets are injected only when a container starts; do not override the three public values with a different environment at runtime.
+
+The images use Node.js 24.17.0, run as the unprivileged `node` user, and contain dependency-aware health checks. The web image listens on `PORT` (3000 by default); the worker listens on `WORKER_PORT` (3001 by default). The GHCR workflow publishes immutable artifacts only. A separate, owner-authorized provider release must provision dependencies, run the one-off database commands below, deploy both images, promote traffic, and record smoke evidence.
+
 ## Configuration and secrets
 
-`.env.example` is the canonical variable list and must contain descriptions but no values that grant access. Exact names may be extended by adapters; the following classes are required.
+`.env.example` is the canonical variable list and contains safe local defaults but no values that grant access. Use only names accepted by `packages/config` and the database command environment.
 
 ### Non-secret configuration
 
-| Variable | Purpose |
-| --- | --- |
-| `APP_ENV` | `local`, `preview`, `staging`, or `production` |
-| `APP_VERSION` | Immutable commit or release identifier |
-| `NEXT_PUBLIC_APP_URL` | Intentional public canonical HTTPS origin |
-| `LOG_LEVEL` | Structured log threshold |
-| `WORKER_CONCURRENCY` | Bounded global concurrency |
-| `SCHEDULES_ENABLED` | Explicit scheduler enable flag; true in only one production scheduler instance |
-| `EMAIL_TRANSPORT` | `provider`, or `console` outside production only |
-| `TELEGRAM_ENABLED` | False until credentials and test delivery are verified |
-| `ERROR_TRACKING_ENVIRONMENT` | Environment label |
-| `SECURITY_CONTACT_EMAIL` | Monitored address published in security metadata |
+| Variable                        | Purpose                                                                        |
+| ------------------------------- | ------------------------------------------------------------------------------ |
+| `NODE_ENV`                      | `development`, `test`, or `production`                                         |
+| `APP_URL`                       | Canonical origin; HTTPS is mandatory in production and at web image build time |
+| `LOG_LEVEL`                     | Structured log threshold                                                       |
+| `PORT`                          | Web listener port; defaults to 3000 in the image                               |
+| `WORKER_ENABLED`                | Must be `true` for the worker process to start                                 |
+| `WORKER_PORT`                   | Private worker health listener; defaults to 3001                               |
+| `WORKER_CONCURRENCY`            | Bounded global concurrency                                                     |
+| `MORPHO_API_URL`                | Reviewed official HTTPS GraphQL endpoint                                       |
+| `EMAIL_TRANSPORT`               | `disabled`, `resend`, or `console`; use `console` only outside production      |
+| `EMAIL_FROM`                    | Verified sender when email delivery is enabled                                 |
+| `NEXT_PUBLIC_SUPABASE_URL`      | Public HTTPS Supabase project URL, required at web build and runtime           |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Browser-safe Supabase anon key, required at web build and runtime              |
 
 Any `NEXT_PUBLIC_` value is shipped to browsers and must be intentionally public. Provider secrets, database URLs, internal tokens, and notification credentials must never use that prefix.
 
 ### Server-only secrets
 
 - `DATABASE_URL` — pooled least-privilege runtime connection
-- `DIRECT_DATABASE_URL` — direct migration connection, available only to migration jobs
+- `DATABASE_MIGRATION_URL` — direct migration connection, available only to one-off database jobs
 - `REDIS_URL`
-- `AUTH_SECRET`, `AUTH_CLIENT_ID`, `AUTH_CLIENT_SECRET` as required by the selected provider
-- `INTERNAL_JOB_TOKEN`, `CRON_SHARED_SECRET`
-- Provider-specific API/RPC/explorer keys
-- `EMAIL_API_KEY`, `EMAIL_WEBHOOK_SECRET`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `CRON_SHARED_SECRET`
+- `RPC_URL_ETHEREUM`, `RPC_URL_BASE`, and `RPC_URL_ARBITRUM` when their URLs contain credentials
+- `PRICE_PROVIDER_API_KEY`
+- `RESEND_API_KEY`
 - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET` when enabled
-- `ERROR_TRACKING_AUTH_TOKEN`
 - `DATA_ENCRYPTION_KEY` if application-level encryption is enabled
 
 Store secrets in the platform’s encrypted secret manager, scope them by service and environment, and record owner and rotation dates. The web service does not receive worker-only provider keys unless it directly needs them. See `SECURITY.md` for inventory and rotation requirements.
@@ -124,51 +140,73 @@ Before any production mutation:
 
 ### 5. Apply migrations
 
-Run migrations as a one-off release job from the immutable artifact:
+Run migrations as a single one-off release job. From a checked-out release workspace:
 
-```text
+```sh
 pnpm db:migrate
 ```
 
-The job uses `DIRECT_DATABASE_URL`, takes a PostgreSQL advisory deployment lock, records the release identifier, and exits before web traffic shifts. Migrations must be forward-compatible with the currently running web and worker. Use expand/migrate/contract changes across releases for destructive or long-running schema changes. Never run an unbounded backfill in the migration transaction.
+Or override the immutable worker image command:
+
+```sh
+node node_modules/@rwa-yield-router/database/dist/cli/migrate.js
+```
+
+The job uses `DATABASE_MIGRATION_URL`, falling back to `DATABASE_URL` only when the dedicated URL is absent, and exits before web traffic shifts. Do not run concurrent migration jobs. Migrations must be forward-compatible with the currently running web and worker. Use expand/migrate/contract changes across releases for destructive or long-running schema changes. Never run an unbounded backfill in the migration transaction.
 
 On failure, stop the release and follow the database-migration runbook. Do not repeatedly rerun a partially understood migration.
 
-### 6. Deploy the worker
+### 6. Seed reference data and import the reviewed catalog
 
-- Deploy the worker artifact with schedules disabled initially.
+Run all four commands against the migrated database before starting the worker:
+
+```sh
+pnpm data:validate
+pnpm db:seed
+pnpm db:catalog-import
+pnpm db:verify
+```
+
+`db:seed` creates canonical categories, assets, roles, yield-source classes, and methodology metadata; it does not insert live metrics. `db:catalog-import` performs the idempotent, provenance-preserving 60-record production import and uses a transaction-scoped PostgreSQL advisory lock. The equivalent immutable worker-image database commands are:
+
+```sh
+node node_modules/@rwa-yield-router/database/dist/cli/seed.js
+node node_modules/@rwa-yield-router/database/dist/cli/import-production-catalog.js
+node node_modules/@rwa-yield-router/database/dist/cli/verify.js
+```
+
+The static `data:validate` gate runs in CI before image publication. Review the import result, category counts, publication/gating states, and representative source records before continuing.
+
+### 7. Deploy the worker
+
+- Deploy one worker instance initially with `WORKER_ENABLED=true`, `DATABASE_URL`, and a TLS `REDIS_URL`. The current worker registers its canonical recurring schedules at startup; there is no separate schedule-enable switch in this release.
 - Verify process liveness, database/Redis connectivity, migration version, queue registration, adapter configuration, and clean structured logs.
 - Run one bounded health-check and one idempotent ingestion job per enabled adapter. Confirm provenance, status, freshness, and deduplication.
 
-### 7. Deploy the web application
+### 8. Deploy the web application
 
 - Deploy the same release version with production canonical origin and secure headers.
 - Keep the prior version available for rapid traffic rollback.
 - Verify `/health/live` before routing traffic and `/health/ready` before full promotion.
 
-### 8. Create the first administrator securely
+### 9. Create the first administrator securely
 
 1. The intended administrator signs in through the production auth provider and enables MFA.
 2. A database/security operator verifies the immutable provider user ID out of band.
-3. Run the repository’s one-off admin grant command from an audited release job, supplying user ID and reason; do not set a default password or persistent bootstrap-admin environment variable.
+3. Run `pnpm db:grant-admin -- --subject=<provider-user-id> --reason="<audited reason>"` from the release workspace, or run the following command from the immutable worker image. Do not set a default password or retain bootstrap environment variables.
+
+   ```sh
+   node node_modules/@rwa-yield-router/database/dist/cli/grant-admin.js --subject=<provider-user-id> --reason="<audited reason>"
+   ```
+
+   The command accepts exactly one `--email=<signed-in-user-email>` selector in place of `--subject`.
+
 4. A second operator reviews the role grant and audit event.
 5. Verify the admin can access permitted pages and that a normal test user receives `403` from every admin endpoint.
 
-### 9. Import verified production records
-
-- Run the production seed/import command only against reviewed import files:
-
-```text
-pnpm db:seed
-```
-
-- The command must validate schema, duplicates, source URLs, verification and effective dates, category coverage, review status, and publication status.
-- Test fixtures and mock observations are forbidden. A missing metric remains `Unavailable`, `Estimated`, `Stale`, or `Awaiting verification` as appropriate.
-- Review counts and sample records in all six categories before publication.
-
 ### 10. Enable schedules and notifications
 
-- Enable exactly one scheduler leader or the platform’s singleton scheduled jobs.
+- Keep the initial worker deployment at one instance until recurring schedule registration, queue deduplication, and provider limits are verified. Scale only after observing idempotent behavior and capacity.
 - Confirm idempotency locks and observe at least one successful cycle for prices, APY, liquidity/utilization, TVL, risk recalculation, and stale-data detection as applicable.
 - Configure email with a real monitored sender, verified domain, unsubscribe behavior, and signed event webhook. Send a test to an operator account.
 - Leave Telegram disabled unless the owner supplies credentials; then verify a test delivery, signature/secret, retry, and delivery log before enabling user delivery.
@@ -219,15 +257,17 @@ All logs carry UTC timestamp, environment, service, release, event, severity, an
 
 ## CI/CD
 
-Pull requests run locked installation, format check, lint, type check, unit tests, integration tests against isolated PostgreSQL/Redis, E2E/accessibility tests, production build, migration validation, secret scan, dependency audit, and static security checks.
+Pull requests run locked installation, format check, lint, type check, unit tests, migrations and integration tests against isolated PostgreSQL/Redis, E2E/accessibility tests, a production build, database verification, and a high-severity dependency audit.
 
-Main-branch release flow:
+The current main-branch workflow builds and publishes SHA-tagged web and worker images to GHCR. It does not provision infrastructure, migrate a database, deploy either service, or promote traffic. After an owner-authorized provider deployment, manually dispatch the workflow with its `deployed_url` input to bind smoke evidence to the canonical HTTPS deployment.
 
-1. Repeat all pull-request checks.
-2. Build immutable web/worker artifacts and record provenance.
-3. Deploy to staging; apply migrations and run E2E/smoke tests.
-4. Require protected-production environment approval.
-5. Back up, apply the production migration job, deploy worker with schedules paused, deploy web, smoke test, enable schedules, and promote traffic.
+Provider release flow:
+
+1. Repeat all pull-request checks and record the release SHA.
+2. Build immutable web/worker artifacts and record their digests and provenance.
+3. Deploy to staging; apply migrations, seed reference data, import the catalog, and run E2E/smoke tests.
+4. Require protected-production environment approval and verify a restorable backup.
+5. Apply the production migration and catalog jobs, deploy one worker instance, deploy web, smoke test, and promote traffic.
 6. Fail closed and retain the prior production artifact if a gate fails.
 
 Scheduled workflows run dependency checks, source-health checks where terms permit, link validation, and stale manual-metadata reports. CI uses protected environment secrets and must not print values or provider response bodies containing credentials.

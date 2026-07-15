@@ -25,14 +25,14 @@ Secondary positioning: “The risk-adjusted yield intelligence layer for on-chai
 
 ## 2. Actors
 
-| Actor | Needs and permissions |
-| --- | --- |
-| Anonymous visitor | Browse public market, product, route, comparison, methodology, source, legal, and status information; run an unsaved public simulation within rate limits. |
-| Authenticated user | All public access plus preferences, saved views, watchlists, comparisons, simulations, alerts, reports, and optional read-only wallet analysis. |
-| Administrator | Server-authorized product and route curation, source and eligibility management, publication workflow, job controls, methodology publication, and delivery/data-quality review. |
-| Operator | Restricted operational visibility and job remediation appropriate to role; no implicit authority to change methodology or product facts. |
-| Data adapter | Read approved external sources, normalize observations, and report health through bounded authenticated jobs. |
-| Public API consumer | Read allowlisted public data under versioning, validation, pagination, caching, and rate limits. |
+| Actor               | Needs and permissions                                                                                                                                                           |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Anonymous visitor   | Browse public market, product, route, comparison, methodology, source, legal, and status information; run an unsaved public simulation within rate limits.                      |
+| Authenticated user  | All public access plus preferences, saved views, watchlists, comparisons, simulations, alerts, reports, and optional read-only wallet analysis.                                 |
+| Administrator       | Server-authorized product and route curation, source and eligibility management, publication workflow, job controls, methodology publication, and delivery/data-quality review. |
+| Operator            | Restricted operational visibility and job remediation appropriate to role; no implicit authority to change methodology or product facts.                                        |
+| Data adapter        | Read approved external sources, normalize observations, and report health through bounded authenticated jobs.                                                                   |
+| Public API consumer | Read allowlisted public data under versioning, validation, pagination, caching, and rate limits.                                                                                |
 
 Permissions shall be least-privilege and composable. Authentication alone shall not confer administrative access.
 
@@ -172,17 +172,17 @@ The UI and API shall expose confidence and source timestamps for material metric
 
 Freshness policies shall be configurable by provider and metric. Initial operational targets are:
 
-| Metric | Target collection or review cadence |
-| --- | --- |
-| Prices | 5 minutes |
-| DeFi APY | 15 minutes |
-| DeFi liquidity and utilization | 15 minutes |
-| TVL | 30 minutes |
-| NAV | Source publication cadence |
-| Issuer AUM | Daily or source publication cadence |
-| Eligibility and legal metadata | Weekly review |
-| Risk score | Event-driven and at least hourly |
-| Historical rollups | Daily |
+| Metric                         | Target collection or review cadence |
+| ------------------------------ | ----------------------------------- |
+| Prices                         | 5 minutes                           |
+| DeFi APY                       | 15 minutes                          |
+| DeFi liquidity and utilization | 15 minutes                          |
+| TVL                            | 30 minutes                          |
+| NAV                            | Source publication cadence          |
+| Issuer AUM                     | Daily or source publication cadence |
+| Eligibility and legal metadata | Weekly review                       |
+| Risk score                     | Event-driven and at least hourly    |
+| Historical rollups             | Daily                               |
 
 Freshness is measured from the observation's economic timestamp, not merely the fetch time. Data beyond its policy shall be visibly stale and shall not be silently treated as current.
 

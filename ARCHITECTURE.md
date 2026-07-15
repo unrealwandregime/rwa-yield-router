@@ -12,20 +12,20 @@ Status: target architecture for the first complete production release. REQUIREME
 
 ## 2. Technology decisions
 
-| Concern | Decision |
-| --- | --- |
-| Repository/runtime | pnpm workspaces, Turborepo, strict TypeScript, pinned active-LTS Node.js |
-| Web | Next.js App Router, Tailwind CSS, accessible headless UI primitives |
-| Storage | PostgreSQL, Drizzle ORM, checked SQL migrations |
-| Auth | Supabase Auth behind a local adapter; domain roles stored locally |
-| Worker | Persistent Node.js TypeScript service |
-| Queue/cache | Managed Redis with BullMQ |
-| Contracts | Zod at boundaries; OpenAPI generated from shared schemas |
-| Financial math | PostgreSQL NUMERIC plus a pinned arbitrary-precision decimal library |
-| On-chain reads | viem public clients only |
-| Notifications | Email adapter with console development transport; Telegram Bot API adapter disabled without credentials |
-| Observability | Structured redacted logs, correlation IDs, OpenTelemetry-compatible metrics, error-tracking adapter |
-| Testing | Vitest, isolated PostgreSQL/Redis integration tests, Playwright, accessibility scans |
+| Concern            | Decision                                                                                                |
+| ------------------ | ------------------------------------------------------------------------------------------------------- |
+| Repository/runtime | pnpm workspaces, Turborepo, strict TypeScript, pinned active-LTS Node.js                                |
+| Web                | Next.js App Router, Tailwind CSS, accessible headless UI primitives                                     |
+| Storage            | PostgreSQL, Drizzle ORM, checked SQL migrations                                                         |
+| Auth               | Supabase Auth behind a local adapter; domain roles stored locally                                       |
+| Worker             | Persistent Node.js TypeScript service                                                                   |
+| Queue/cache        | Managed Redis with BullMQ                                                                               |
+| Contracts          | Zod at boundaries; OpenAPI generated from shared schemas                                                |
+| Financial math     | PostgreSQL NUMERIC plus a pinned arbitrary-precision decimal library                                    |
+| On-chain reads     | viem public clients only                                                                                |
+| Notifications      | Email adapter with console development transport; Telegram Bot API adapter disabled without credentials |
+| Observability      | Structured redacted logs, correlation IDs, OpenTelemetry-compatible metrics, error-tracking adapter     |
+| Testing            | Vitest, isolated PostgreSQL/Redis integration tests, Playwright, accessibility scans                    |
 
 Dependency versions, chart library, and the HiGHS Node/WASM binding are pinned only after current maintenance, licence, and security review. The optimizer uses a solver-neutral interface; if no safe maintained HiGHS binding exists, use an audited deterministic bounded-simplex adapter, not an abandoned dependency.
 
@@ -50,7 +50,7 @@ Domain and engine packages do not import React, Next.js, BullMQ, provider SDKs, 
 
 ## 4. Runtime topology
 
-~~~mermaid
+```mermaid
 flowchart LR
     U["Users and administrators"] --> W["Next.js web"]
     W --> A["Supabase Auth"]
@@ -62,7 +62,7 @@ flowchart LR
     K --> N["Email and Telegram"]
     W --> O["Logs, metrics, error tracking"]
     K --> O
-~~~
+```
 
 Web owns server-rendered pages, versioned public reads, authenticated/account/admin actions, simulations, read-only wallet analysis, and health endpoints. It does not run long ingestion or delivery work.
 
@@ -72,14 +72,14 @@ Web and worker deploy independently from one commit. Migrations run as a discret
 
 ## 5. Trust boundaries
 
-| Input | Controls |
-| --- | --- |
-| Browser/API | Zod validation, bounded filters, CSRF/origin controls where relevant, server authorization, rate limits, output encoding |
-| Auth callback | Provider verification, state/nonce, secure cookie exchange, local role lookup |
-| Queue payload | Allowlisted job registry, versioned schema, producer identity, size limit, idempotency |
-| Provider response/URL | Host and protocol policy, private-IP and redirect checks, timeout, response-size/content-type limit, schema validation |
-| Admin form/import | Role check, validation, review/publish workflow, audit log, source validation, formula-safe CSV |
-| Webhook | Signature, timestamp, replay protection before business parsing |
+| Input                 | Controls                                                                                                                 |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Browser/API           | Zod validation, bounded filters, CSRF/origin controls where relevant, server authorization, rate limits, output encoding |
+| Auth callback         | Provider verification, state/nonce, secure cookie exchange, local role lookup                                            |
+| Queue payload         | Allowlisted job registry, versioned schema, producer identity, size limit, idempotency                                   |
+| Provider response/URL | Host and protocol policy, private-IP and redirect checks, timeout, response-size/content-type limit, schema validation   |
+| Admin form/import     | Role check, validation, review/publish workflow, audit log, source validation, formula-safe CSV                          |
+| Webhook               | Signature, timestamp, replay protection before business parsing                                                          |
 
 Public identifiers never confer access. Logs and errors exclude secrets, tokens, sessions, unnecessary personal data, and unsafe raw provider payloads.
 
@@ -179,9 +179,13 @@ Public /api/v1 endpoints use generated OpenAPI, allowlisted serializers, bounded
 
 Supabase proves identity; local server policy proves role, action, and object ownership for every query/mutation. Admin publication is transactional and audited. Protected/private pages are no-store and excluded from indexing.
 
+The administration page contains no bundled catalog or operational facts. After the server-rendered authorization gate, its client island requests a bounded, no-store database snapshot through a same-origin, CSRF-protected administrator endpoint. Catalog, source, entity, eligibility, redemption, observation-quality, and methodology changes use strict discriminated request schemas and transactional writes. Catalog edits create superseding drafts; source edits create a draft version while the prior published version remains active, then supersede it transactionally on replacement publication; eligibility and redemption edits append effective versions backed by a source observation; organization metadata retains monotonic before/after revisions in `admin_audit_logs`; and observation overrides append `data_quality_events` without mutating the original observation. Security-audit reads use the separate `SECURITY_ADMIN` capability and omit subject and network hashes from the console response.
+
 Wallet analysis accepts public addresses and configured chains through viem public clients. Signing clients and transaction builders are excluded. Unknown holdings and coverage gaps remain visible; absent RPC support disables the feature truthfully.
 
 Alert evaluation creates a deterministic deduplicated event, applies cooldown/timezone rules, then fans out independent in-app, email, and Telegram deliveries. Delivery states are queued, attempting, delivered, retryable failure, permanent failure, suppressed, or cancelled.
+
+Alert rules retain a bounded lookback and the latest explicit evaluation state. Numeric conditions read current and, where required, point-in-time baseline snapshots; event conditions read versioned terms, quality events, sourced allocation observations, or catalog lifecycle state. If the required evidence is absent, non-current, semantically incompatible, or lacks a baseline, evaluation records `UNAVAILABLE` with a machine-readable reason and creates no delivery. External destinations use a versioned AES-256-GCM envelope and keyed hash under `DATA_ENCRYPTION_KEY`; queue jobs carry only a delivery UUID. The worker resolves and decrypts the owner-scoped destination immediately before dispatch, hashes provider message identifiers, and never writes plaintext destinations to queues or delivery logs.
 
 CSV export allowlists fields, bounds rows, streams output, and neutralizes formulas. Print/PDF reports render from an immutable saved simulation; conversion is sandboxed with no arbitrary URL access.
 
@@ -195,15 +199,15 @@ Use cached/materialized aggregates, cursor pagination, virtualized tables, chart
 
 Failure behavior:
 
-| Failure | Safe result |
-| --- | --- |
-| Provider | Circuit/fallback; last valid data ages visibly |
-| Worker | Browsing continues; queue-age alert; no false success |
-| Notification | In-app event remains; external attempt retries/logs |
-| Risk/solver | Prior score becomes stale or no allocation is returned |
-| Auth | Public browsing works; protected actions fail closed |
-| Database | Readiness fails; controlled error; no partial mutation |
-| Migration | Release stops before traffic; rollback/forward-fix runbook |
+| Failure      | Safe result                                                |
+| ------------ | ---------------------------------------------------------- |
+| Provider     | Circuit/fallback; last valid data ages visibly             |
+| Worker       | Browsing continues; queue-age alert; no false success      |
+| Notification | In-app event remains; external attempt retries/logs        |
+| Risk/solver  | Prior score becomes stale or no allocation is returned     |
+| Auth         | Public browsing works; protected actions fail closed       |
+| Database     | Readiness fails; controlled error; no partial mutation     |
+| Migration    | Release stops before traffic; rollback/forward-fix runbook |
 
 ## 11. Delivery and decisions
 

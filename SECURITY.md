@@ -73,18 +73,18 @@ Assumptions:
 
 ## Trust boundaries
 
-| Boundary | Trusted side | Untrusted side | Required controls |
-| --- | --- | --- | --- |
-| Browser to web/API | Server runtime and validated application state | Browser input, cookies, query strings, wallet addresses, uploaded/imported files | TLS, secure headers, validation, authentication, CSRF protection, output encoding, rate limits |
-| Web/API to auth provider | Server-side callback handling and verified claims | Redirect parameters, authorization responses, provider availability | Exact redirect allowlist, state/nonce/PKCE, issuer/audience checks, session rotation, no open redirects |
-| Web/worker to PostgreSQL | Parameterized ORM/query layer | User-controlled filters and imported source data | Least-privilege roles, parameterization, transaction boundaries, row ownership checks, query budgets |
-| Web/worker to Redis and queues | Versioned job producers/consumers | Serialized payloads, retries, duplicate or delayed jobs | TLS/auth, schema validation, bounded payloads, idempotency, allowlisted job types, DLQ isolation |
-| Worker to external sources | Adapter code and outbound policy | DNS, URLs, redirects, response bodies, upstream claims | Host allowlist, DNS/IP checks, timeouts, size limits, content-type validation, circuit breakers, provenance |
-| Webhooks to application | Signature verifier and replay store | Public webhook request | Raw-body signature check, timestamp tolerance, replay prevention, endpoint-specific limits |
-| Application to notification providers | Sanitized templates and verified destinations | Provider response and delivery events | Provider-scoped keys, no secrets in message bodies, webhook verification, delivery audit log |
-| Admin browser to admin services | Server-side RBAC and audited actions | Navigation state, client claims, imported records | MFA, step-up for sensitive actions, object-level checks, reason/source requirement, immutable audit log |
-| CI/CD to production | Protected branch, reviewed workflow, protected environment | Pull-request code, dependency scripts, build logs | OIDC/short-lived credentials, environment approval, pinned actions, secret masking, artifact provenance |
-| Public wallet data to account data | User-authorized address association | RPC/indexer results and unrecognized positions | No signature/approval, chain/address validation, explicit incompleteness labels, deletion support |
+| Boundary                              | Trusted side                                               | Untrusted side                                                                   | Required controls                                                                                           |
+| ------------------------------------- | ---------------------------------------------------------- | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Browser to web/API                    | Server runtime and validated application state             | Browser input, cookies, query strings, wallet addresses, uploaded/imported files | TLS, secure headers, validation, authentication, CSRF protection, output encoding, rate limits              |
+| Web/API to auth provider              | Server-side callback handling and verified claims          | Redirect parameters, authorization responses, provider availability              | Exact redirect allowlist, state/nonce/PKCE, issuer/audience checks, session rotation, no open redirects     |
+| Web/worker to PostgreSQL              | Parameterized ORM/query layer                              | User-controlled filters and imported source data                                 | Least-privilege roles, parameterization, transaction boundaries, row ownership checks, query budgets        |
+| Web/worker to Redis and queues        | Versioned job producers/consumers                          | Serialized payloads, retries, duplicate or delayed jobs                          | TLS/auth, schema validation, bounded payloads, idempotency, allowlisted job types, DLQ isolation            |
+| Worker to external sources            | Adapter code and outbound policy                           | DNS, URLs, redirects, response bodies, upstream claims                           | Host allowlist, DNS/IP checks, timeouts, size limits, content-type validation, circuit breakers, provenance |
+| Webhooks to application               | Signature verifier and replay store                        | Public webhook request                                                           | Raw-body signature check, timestamp tolerance, replay prevention, endpoint-specific limits                  |
+| Application to notification providers | Sanitized templates and verified destinations              | Provider response and delivery events                                            | Provider-scoped keys, no secrets in message bodies, webhook verification, delivery audit log                |
+| Admin browser to admin services       | Server-side RBAC and audited actions                       | Navigation state, client claims, imported records                                | MFA, step-up for sensitive actions, object-level checks, reason/source requirement, immutable audit log     |
+| CI/CD to production                   | Protected branch, reviewed workflow, protected environment | Pull-request code, dependency scripts, build logs                                | OIDC/short-lived credentials, environment approval, pinned actions, secret masking, artifact provenance     |
+| Public wallet data to account data    | User-authorized address association                        | RPC/indexer results and unrecognized positions                                   | No signature/approval, chain/address validation, explicit incompleteness labels, deletion support           |
 
 Data crossing a trust boundary remains untrusted even if it came from an “official” source. Provenance and source confidence do not replace input validation.
 
@@ -185,42 +185,42 @@ Production CSP is generated with a per-request nonce. `unsafe-inline` and `unsaf
 
 ## Threat-control matrix
 
-| Threat | Preventive and detective controls | Required verification |
-| --- | --- | --- |
-| Authentication bypass | Mature auth provider, exact callback validation, state/nonce/PKCE, secure sessions, fail-closed middleware and handlers | Integration tests for forged/expired callbacks and unauthenticated protected routes |
-| Broken object-level authorization | Owner-scoped queries and action-level server checks | Tests attempt read/update/delete of every user-owned resource from a second user |
-| Admin privilege escalation | Authoritative server roles, MFA, recent-auth, second review, immutable audit log | Tests modify client claims/cookies and call every admin endpoint as normal user |
-| SQL injection | Strict schemas, parameterized ORM, reviewed bound raw SQL | Static analysis plus injection corpus against filters, sorts, imports, and admin search |
-| XSS and untrusted HTML | Contextual encoding, plain-text external content, CSP nonce, no arbitrary HTML/SVG | Automated XSS corpus and CSP checks on tables, tooltips, reports, and admin previews |
-| CSRF | SameSite cookies, origin checks, anti-CSRF token for cookie-auth mutations, no GET mutation | Cross-origin mutation tests and auth-callback tests |
-| SSRF and malicious source URLs | Adapter host allowlists, DNS/IP validation, redirect revalidation, time/size caps | Tests for metadata IPs, IPv6, numeric IPs, userinfo, redirect chains, and DNS rebinding behavior |
-| Open redirect | Local-path or exact-host allowlist and server-generated callbacks | Tests with encoded schemes, protocol-relative URLs, backslashes, and nested return URLs |
-| Rate-limit abuse and expensive filters | Layered quotas, bounded inputs, query/solver timeouts, caching and cancellation | Load tests for wide filters, history, optimizer, exports, and repeated auth attempts |
-| Credential exposure | Server-only secrets, scoped credentials, redaction, secret scanning, protected CI environments | Build scan for public-prefixed secrets; log/error/CI review; rotation drill |
-| Dependency and build compromise | Lockfile, automated audit, update review, pinned CI actions, minimal images, artifact provenance | PR and scheduled dependency scans; block exploitable critical/high findings |
-| Webhook forgery and replay | Raw-body signature, timestamp, event replay store, provider-specific secrets | Invalid signature, stale timestamp, duplicate event, and oversized payload tests |
-| Queue poisoning | Authenticated queue, strict job schemas, allowlisted names, bounded payloads, idempotency and DLQ review | Fuzz invalid job versions/types and unauthorized producer tests |
-| CSV formula injection | Formula neutralization and fixed exports | Tests for whitespace plus `=`, `+`, `-`, `@`, tab, CR, LF and quoted multiline cells |
-| Unsafe contract-address rendering | Chain-aware validation and server-owned explorer registry | Tests for malformed addresses, chain mismatch, Unicode, HTML, and `javascript:` content |
-| Sensitive-data logging | Central redaction, safe event schemas, no automatic body/header capture | Automated canary-secret test across logs and error tracking |
-| Session fixation and brute force | Session rotation, revocation, MFA, generic auth responses, layered throttles | Session-ID rotation tests and distributed/passwordless replay abuse tests |
+| Threat                                 | Preventive and detective controls                                                                                       | Required verification                                                                            |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Authentication bypass                  | Mature auth provider, exact callback validation, state/nonce/PKCE, secure sessions, fail-closed middleware and handlers | Integration tests for forged/expired callbacks and unauthenticated protected routes              |
+| Broken object-level authorization      | Owner-scoped queries and action-level server checks                                                                     | Tests attempt read/update/delete of every user-owned resource from a second user                 |
+| Admin privilege escalation             | Authoritative server roles, MFA, recent-auth, second review, immutable audit log                                        | Tests modify client claims/cookies and call every admin endpoint as normal user                  |
+| SQL injection                          | Strict schemas, parameterized ORM, reviewed bound raw SQL                                                               | Static analysis plus injection corpus against filters, sorts, imports, and admin search          |
+| XSS and untrusted HTML                 | Contextual encoding, plain-text external content, CSP nonce, no arbitrary HTML/SVG                                      | Automated XSS corpus and CSP checks on tables, tooltips, reports, and admin previews             |
+| CSRF                                   | SameSite cookies, origin checks, anti-CSRF token for cookie-auth mutations, no GET mutation                             | Cross-origin mutation tests and auth-callback tests                                              |
+| SSRF and malicious source URLs         | Adapter host allowlists, DNS/IP validation, redirect revalidation, time/size caps                                       | Tests for metadata IPs, IPv6, numeric IPs, userinfo, redirect chains, and DNS rebinding behavior |
+| Open redirect                          | Local-path or exact-host allowlist and server-generated callbacks                                                       | Tests with encoded schemes, protocol-relative URLs, backslashes, and nested return URLs          |
+| Rate-limit abuse and expensive filters | Layered quotas, bounded inputs, query/solver timeouts, caching and cancellation                                         | Load tests for wide filters, history, optimizer, exports, and repeated auth attempts             |
+| Credential exposure                    | Server-only secrets, scoped credentials, redaction, secret scanning, protected CI environments                          | Build scan for public-prefixed secrets; log/error/CI review; rotation drill                      |
+| Dependency and build compromise        | Lockfile, automated audit, update review, pinned CI actions, minimal images, artifact provenance                        | PR and scheduled dependency scans; block exploitable critical/high findings                      |
+| Webhook forgery and replay             | Raw-body signature, timestamp, event replay store, provider-specific secrets                                            | Invalid signature, stale timestamp, duplicate event, and oversized payload tests                 |
+| Queue poisoning                        | Authenticated queue, strict job schemas, allowlisted names, bounded payloads, idempotency and DLQ review                | Fuzz invalid job versions/types and unauthorized producer tests                                  |
+| CSV formula injection                  | Formula neutralization and fixed exports                                                                                | Tests for whitespace plus `=`, `+`, `-`, `@`, tab, CR, LF and quoted multiline cells             |
+| Unsafe contract-address rendering      | Chain-aware validation and server-owned explorer registry                                                               | Tests for malformed addresses, chain mismatch, Unicode, HTML, and `javascript:` content          |
+| Sensitive-data logging                 | Central redaction, safe event schemas, no automatic body/header capture                                                 | Automated canary-secret test across logs and error tracking                                      |
+| Session fixation and brute force       | Session rotation, revocation, MFA, generic auth responses, layered throttles                                            | Session-ID rotation tests and distributed/passwordless replay abuse tests                        |
 
 ## Secret inventory and handling
 
 No secret may use a client-exposed/public-prefixed variable. A public-prefixed variable is permitted only when its value is intentionally public and documented as such. Real values live in the deployment provider’s encrypted secret store; `.env.example` contains names and descriptions only.
 
-| Secret class | Canonical environment name(s) | Consumer | Rotation expectation |
-| --- | --- | --- | --- |
-| PostgreSQL application and migration credentials | `DATABASE_URL`, `DIRECT_DATABASE_URL` | Web, worker, migration job | Separate least-privilege users; rotate at least every 90 days and on access change |
-| Redis/queue credential | `REDIS_URL` | Web and worker | TLS, scoped network access; rotate at least every 90 days |
-| Auth session and provider credentials | `AUTH_SECRET`, `AUTH_CLIENT_ID`, `AUTH_CLIENT_SECRET` | Web/auth callbacks | Rotate session secret with overlap; provider credential at least every 90 days |
-| Field encryption key | `DATA_ENCRYPTION_KEY` | Server-side sensitive fields, if enabled | Versioned envelope key; annual rotation or immediately on suspicion |
-| Internal job and cron identity | `INTERNAL_JOB_TOKEN`, `CRON_SHARED_SECRET` | Scheduler and internal endpoints | Distinct scoped values; rotate at least every 90 days |
-| Data, RPC, explorer, and price-provider keys | Provider-specific server-only variables | Worker adapters | Scope per provider/environment; rotate at least every 180 days or provider guidance |
-| Email credential and webhook secret | `EMAIL_API_KEY`, `EMAIL_WEBHOOK_SECRET` | Worker/webhook receiver | Separate send/verify credentials; rotate at least every 180 days |
-| Telegram bot and webhook credentials | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET` | Worker/webhook receiver | Configure only when owner supplies them; rotate on operator/bot change |
-| Error-monitoring auth token | `ERROR_TRACKING_AUTH_TOKEN` | CI release upload/server | Write-minimal scope; rotate at least every 180 days |
-| Backup/export encryption credential | Provider-managed or `BACKUP_ENCRYPTION_KEY` | Backup service only | Keep outside app runtime; rotate under provider procedure |
+| Secret class                                     | Canonical environment name(s)                         | Consumer                                 | Rotation expectation                                                                |
+| ------------------------------------------------ | ----------------------------------------------------- | ---------------------------------------- | ----------------------------------------------------------------------------------- |
+| PostgreSQL application and migration credentials | `DATABASE_URL`, `DIRECT_DATABASE_URL`                 | Web, worker, migration job               | Separate least-privilege users; rotate at least every 90 days and on access change  |
+| Redis/queue credential                           | `REDIS_URL`                                           | Web and worker                           | TLS, scoped network access; rotate at least every 90 days                           |
+| Auth session and provider credentials            | `AUTH_SECRET`, `AUTH_CLIENT_ID`, `AUTH_CLIENT_SECRET` | Web/auth callbacks                       | Rotate session secret with overlap; provider credential at least every 90 days      |
+| Field encryption key                             | `DATA_ENCRYPTION_KEY`                                 | Server-side sensitive fields, if enabled | Versioned envelope key; annual rotation or immediately on suspicion                 |
+| Internal job and cron identity                   | `INTERNAL_JOB_TOKEN`, `CRON_SHARED_SECRET`            | Scheduler and internal endpoints         | Distinct scoped values; rotate at least every 90 days                               |
+| Data, RPC, explorer, and price-provider keys     | Provider-specific server-only variables               | Worker adapters                          | Scope per provider/environment; rotate at least every 180 days or provider guidance |
+| Email credential and webhook secret              | `EMAIL_API_KEY`, `EMAIL_WEBHOOK_SECRET`               | Worker/webhook receiver                  | Separate send/verify credentials; rotate at least every 180 days                    |
+| Telegram bot and webhook credentials             | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`       | Worker/webhook receiver                  | Configure only when owner supplies them; rotate on operator/bot change              |
+| Error-monitoring auth token                      | `ERROR_TRACKING_AUTH_TOKEN`                           | CI release upload/server                 | Write-minimal scope; rotate at least every 180 days                                 |
+| Backup/export encryption credential              | Provider-managed or `BACKUP_ENCRYPTION_KEY`           | Backup service only                      | Keep outside app runtime; rotate under provider procedure                           |
 
 Each secret has an owner, scope, creation date, last rotation date, next review, and revocation procedure in the operator secret register. Secrets are never sent in URLs, screenshots, support messages, telemetry, downloadable reports, or Git history. Local development uses distinct non-production credentials.
 
@@ -228,18 +228,20 @@ Each secret has an owner, scope, creation date, last rotation date, next review,
 
 These defaults minimize data while preserving operational and regulatory evidence. They require professional privacy and legal review before commercial scale and may be shortened by jurisdiction.
 
-| Class | Examples | Default retention assumption |
-| --- | --- | --- |
-| Public analytical data | Published products, routes, source links, public methodology | Retain while current; archive immutable historical versions for reproducibility |
-| Account data | Email/provider ID, preferences, linked public addresses, saved objects | Until account deletion or purpose ends; purge active records within 30 days of a verified request |
-| Notification data | Destination identifiers, alert rules, delivery status | Rules until deleted; delivery metadata 180 days; avoid retaining provider message bodies |
-| Raw ingestion | Legally permitted provider response subset and provenance | 30 days by default, then retain normalized observations; shorter where license requires |
-| Application logs | Redacted request and job diagnostics | 30 days online, up to 90 days restricted archive |
-| Security and admin audit logs | Sign-in risk, role changes, publication and override history | 2 years by default because integrity history is material |
-| Database backups | Encrypted snapshots and point-in-time recovery logs | Rolling 35 days; deletion completes when the final containing backup expires |
-| Dead-letter jobs | Redacted failed payloads and diagnostics | 30 days or until resolved, whichever is sooner |
+| Class                         | Examples                                                               | Default retention assumption                                                                      |
+| ----------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Public analytical data        | Published products, routes, source links, public methodology           | Retain while current; archive immutable historical versions for reproducibility                   |
+| Account data                  | Email/provider ID, preferences, linked public addresses, saved objects | Until account deletion or purpose ends; purge active records within 30 days of a verified request |
+| Notification data             | Destination identifiers, alert rules, delivery status                  | Rules until deleted; delivery metadata 180 days; avoid retaining provider message bodies          |
+| Raw ingestion                 | Legally permitted provider response subset and provenance              | 30 days by default, then retain normalized observations; shorter where license requires           |
+| Application logs              | Redacted request and job diagnostics                                   | 30 days online, up to 90 days restricted archive                                                  |
+| Security and admin audit logs | Sign-in risk, role changes, publication and override history           | 2 years by default because integrity history is material                                          |
+| Database backups              | Encrypted snapshots and point-in-time recovery logs                    | Rolling 35 days; deletion completes when the final containing backup expires                      |
+| Dead-letter jobs              | Redacted failed payloads and diagnostics                               | 30 days or until resolved, whichever is sooner                                                    |
 
 Do not collect government IDs, accreditation documents, private keys, seed phrases, payment-card data, or wallet signatures. Jurisdiction and investor classification are user-declared preferences unless a separate reviewed verification service is introduced.
+
+Email addresses and Telegram chat identifiers used for alerts are normalized, authenticated-encrypted at rest, and represented in queries and logs only by a keyed hash or masked label. AES-GCM additional authenticated data binds ciphertext to its channel. A successful provider test marks a destination verified; ordinary external alert deliveries are suppressed until that test succeeds. Disabling a destination cancels its queued and retryable deliveries. Notification queue payloads contain only opaque delivery identifiers, so Redis and dead-letter storage never receive plaintext destinations.
 
 Deletion must remove or irreversibly anonymize account-linked records, revoke sessions, disable alerts, remove notification destinations, and record a minimal non-identifying fulfillment receipt. Legally required security/admin audit facts may be retained with identity minimized and access restricted. Backup expiry is disclosed to the requester.
 
@@ -256,12 +258,12 @@ Deletion must remove or irreversibly anonymize account-linked records, revoke se
 
 ### Severity
 
-| Severity | Definition | Initial response target |
-| --- | --- | --- |
-| SEV-1 | Confirmed secret compromise, admin takeover, material data integrity breach, personal-data exposure, or widespread unsafe analytics | Page immediately; incident lead assigned within 15 minutes |
-| SEV-2 | Credible attempted compromise, limited unauthorized access, major control failure, or sustained production outage | Incident lead within 30 minutes |
-| SEV-3 | Contained vulnerability or degradation without known unauthorized access or material misinformation | Triage within 4 business hours |
-| SEV-4 | Low-risk hardening issue or informational report | Triage within 2 business days |
+| Severity | Definition                                                                                                                          | Initial response target                                    |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| SEV-1    | Confirmed secret compromise, admin takeover, material data integrity breach, personal-data exposure, or widespread unsafe analytics | Page immediately; incident lead assigned within 15 minutes |
+| SEV-2    | Credible attempted compromise, limited unauthorized access, major control failure, or sustained production outage                   | Incident lead within 30 minutes                            |
+| SEV-3    | Contained vulnerability or degradation without known unauthorized access or material misinformation                                 | Triage within 4 business hours                             |
+| SEV-4    | Low-risk hardening issue or informational report                                                                                    | Triage within 2 business days                              |
 
 Targets are operational goals, not legal-notification deadlines.
 
@@ -282,7 +284,7 @@ Do not rotate a credential in a way that leaves the exposed value in CI logs, sh
 Report suspected vulnerabilities privately. Do not include secrets or personal data in a public issue.
 
 1. Use the repository host’s private security-advisory feature until a monitored production security mailbox is configured.
-2. At deployment, set and monitor `SECURITY_CONTACT_EMAIL` and publish it in `/.well-known/security.txt` with an expiry date and the canonical policy URL.
+2. At deployment, set and monitor `SECURITY_CONTACT_URL` and publish it in `/.well-known/security.txt` with an expiry date and the canonical policy URL.
 3. Include affected URL/component, impact, reproduction steps, and proof-of-concept using non-production data.
 4. The team acknowledges credible reports within two business days, provides a tracking reference, and coordinates disclosure after remediation.
 

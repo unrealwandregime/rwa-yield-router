@@ -8,21 +8,21 @@ All incident times, observations, and decisions are recorded in UTC. Use an inci
 
 ## Roles and severity
 
-| Role | Responsibility |
-| --- | --- |
-| Incident commander | Owns severity, priorities, decisions, handoffs, and closure |
-| Operations lead | Web, worker, queue, database, deployment, and rollback actions |
-| Data lead | Source validity, observations, APY/risk recalculation, and product status |
-| Security lead | Identity, secrets, evidence preservation, containment, and disclosure |
-| Communications lead | Operator, user, provider, and status updates |
-| Scribe | UTC timeline, correlation IDs, actions, evidence, and follow-up owners |
+| Role                | Responsibility                                                            |
+| ------------------- | ------------------------------------------------------------------------- |
+| Incident commander  | Owns severity, priorities, decisions, handoffs, and closure               |
+| Operations lead     | Web, worker, queue, database, deployment, and rollback actions            |
+| Data lead           | Source validity, observations, APY/risk recalculation, and product status |
+| Security lead       | Identity, secrets, evidence preservation, containment, and disclosure     |
+| Communications lead | Operator, user, provider, and status updates                              |
+| Scribe              | UTC timeline, correlation IDs, actions, evidence, and follow-up owners    |
 
-| Severity | Example | Response target |
-| --- | --- | --- |
-| SEV-1 | Compromise, cross-user/admin access, widespread false analytics, unrecoverable critical outage | Page immediately; commander within 15 minutes |
-| SEV-2 | Major outage, large stale-data set, incorrect published APY, alert spam/failure | Commander within 30 minutes |
-| SEV-3 | Isolated adapter, queue, product, or notification degradation | Triage within 4 business hours |
-| SEV-4 | Low-impact defect or hardening work | Triage within 2 business days |
+| Severity | Example                                                                                        | Response target                               |
+| -------- | ---------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| SEV-1    | Compromise, cross-user/admin access, widespread false analytics, unrecoverable critical outage | Page immediately; commander within 15 minutes |
+| SEV-2    | Major outage, large stale-data set, incorrect published APY, alert spam/failure                | Commander within 30 minutes                   |
+| SEV-3    | Isolated adapter, queue, product, or notification degradation                                  | Triage within 4 business hours                |
+| SEV-4    | Low-impact defect or hardening work                                                            | Triage within 2 business days                 |
 
 Targets are operational goals, not legal-notification deadlines. The security lead and counsel determine notification obligations.
 
@@ -39,15 +39,15 @@ Targets are operational goals, not legal-notification deadlines. The security le
 
 ## Service map and first checks
 
-| Signal | Source | Healthy meaning |
-| --- | --- | --- |
-| `/health/live` | Web/process probe | Process can answer; no dependency check |
-| `/health/ready` | Web/worker readiness | Schema and critical PostgreSQL/Redis dependencies are compatible |
-| Provider overview | Admin/metrics | Adapter success, latency, circuit state, last good fetch |
-| Job dashboard | Admin/queue metrics | Scheduler heartbeat, queue depth/age, retry and dead-letter counts |
-| Data freshness | Metrics/admin | Required observations meet their metric-specific cadence |
-| Alert delivery | Metrics/admin | Evaluation, suppression, send, webhook, and retry states progress |
-| Release dashboard | Deployment provider | Web/worker commit, artifact, migration, and rollout match |
+| Signal            | Source               | Healthy meaning                                                    |
+| ----------------- | -------------------- | ------------------------------------------------------------------ |
+| `/health/live`    | Web/process probe    | Process can answer; no dependency check                            |
+| `/health/ready`   | Web/worker readiness | Schema and critical PostgreSQL/Redis dependencies are compatible   |
+| Provider overview | Admin/metrics        | Adapter success, latency, circuit state, last good fetch           |
+| Job dashboard     | Admin/queue metrics  | Scheduler heartbeat, queue depth/age, retry and dead-letter counts |
+| Data freshness    | Metrics/admin        | Required observations meet their metric-specific cadence           |
+| Alert delivery    | Metrics/admin        | Evaluation, suppression, send, webhook, and retry states progress  |
+| Release dashboard | Deployment provider  | Web/worker commit, artifact, migration, and rollout match          |
 
 Initial alert thresholds are versioned configuration and should be tuned after baseline collection:
 
@@ -170,6 +170,15 @@ Initial alert thresholds are versioned configuration and should be tuned after b
 4. Evaluate affected watchlists, saved simulations, wallet holdings, comparisons, and status/redemption/eligibility alerts. Inform users factually without giving transaction instructions.
 5. Stop unnecessary ingestion but retain jobs needed to detect recovery or closure terms. Never fabricate an exit route or liquidity.
 6. Reinstate only with current official evidence, refreshed critical metrics, full dependent recalculation, and reviewer approval.
+
+## Runbook: curated data and methodology review
+
+1. Open the administration console with an MFA-verified, recently authenticated account. Select the exact evidence source before using any quick metadata action.
+2. Create or edit sources as drafts. Review the canonical URL, ownership, terms/licence, cadence, freshness threshold, attribution, and removal procedure before publication. An edit creates a new version and leaves the previous version auditable.
+3. Create catalog, entity, eligibility, redemption, and source-link drafts with a reason and evidence verification time. Never change an imported observation to make it agree with a manual assessment; append an annotation or non-destructive override and resolve the resulting quality event only after reconciliation.
+4. Use route lifecycle state for `PAUSED`, `RESTRICTED`, `CLOSED`, or `UNAVAILABLE`; use publication state for review/reject/archive decisions. Queue re-ingestion only for a route with a canonical admitted adapter identity.
+5. Before publishing a risk methodology, verify every one of the six categories includes every canonical factor and totals exactly 100 percent. The reviewer and publisher must be different accounts. Published methodology versions are immutable.
+6. Export the formula-safe data-quality CSV for review evidence. Record the snapshot time and correlation IDs for all material actions. Security-audit events require `SECURITY_ADMIN` and are intentionally separated from ordinary administration.
 
 ## Runbook: security incident
 

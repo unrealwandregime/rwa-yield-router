@@ -15,18 +15,18 @@ Testing must prove that:
 
 ## 2. Test layers and tooling
 
-| Layer | Tooling | Runs |
-| --- | --- | --- |
-| Static | Formatter, ESLint, strict TypeScript, dependency and secret scanning | Local validation and every PR |
-| Unit | Vitest; deterministic clock; arbitrary-precision decimals; property tests where valuable | Every PR |
-| Integration | Vitest against isolated PostgreSQL and Redis; HTTP/provider stubs | Every PR |
-| Contract | Zod/OpenAPI schema tests and recorded provider fixtures permitted by source terms | Every PR; provider probes scheduled separately |
-| End to end | Playwright against a production build | Every PR and staging |
-| Accessibility | Automated axe-compatible scans plus keyboard and screen-reader-oriented manual checks | Every PR for key pages; full release review |
-| Visual | Playwright screenshots at required states and viewports | PR baselines and release review |
-| Security | SAST, dependency/container/secret scans, targeted abuse tests, manual threat-model review | PR, scheduled, and release |
-| Performance | Browser budgets, API/load tests, database query plans, worker throughput | Staging and release |
-| Smoke | Read-only production checks plus a controlled authenticated/admin canary | Every deployment |
+| Layer         | Tooling                                                                                   | Runs                                           |
+| ------------- | ----------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| Static        | Formatter, ESLint, strict TypeScript, dependency and secret scanning                      | Local validation and every PR                  |
+| Unit          | Vitest; deterministic clock; arbitrary-precision decimals; property tests where valuable  | Every PR                                       |
+| Integration   | Vitest against isolated PostgreSQL and Redis; HTTP/provider stubs                         | Every PR                                       |
+| Contract      | Zod/OpenAPI schema tests and recorded provider fixtures permitted by source terms         | Every PR; provider probes scheduled separately |
+| End to end    | Playwright against a production build                                                     | Every PR and staging                           |
+| Accessibility | Automated axe-compatible scans plus keyboard and screen-reader-oriented manual checks     | Every PR for key pages; full release review    |
+| Visual        | Playwright screenshots at required states and viewports                                   | PR baselines and release review                |
+| Security      | SAST, dependency/container/secret scans, targeted abuse tests, manual threat-model review | PR, scheduled, and release                     |
+| Performance   | Browser budgets, API/load tests, database query plans, worker throughput                  | Staging and release                            |
+| Smoke         | Read-only production checks plus a controlled authenticated/admin canary                  | Every deployment                               |
 
 Tests must not require the public internet, production credentials, or wall-clock timing. External systems use protocol-faithful stubs in CI. Approved scheduled health probes and production smoke checks are separate and never mutate external financial systems.
 
