@@ -1,0 +1,49 @@
+{
+  "name": "rwa-yield-router",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Non-custodial risk-adjusted yield intelligence for on-chain cash and real-world assets.",
+  "packageManager": "pnpm@11.12.0",
+  "engines": {
+    "node": ">=24.17.0 <25",
+    "pnpm": ">=11.12.0 <12"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "data:validate": "pnpm --filter @rwa-yield-router/data-adapters data:validate",
+    "db:generate": "pnpm --filter @rwa-yield-router/database db:generate",
+    "db:catalog-import": "pnpm --filter @rwa-yield-router/database db:catalog-import",
+    "db:grant-admin": "pnpm --filter @rwa-yield-router/database db:grant-admin",
+    "db:migrate": "pnpm --filter @rwa-yield-router/database db:migrate",
+    "db:seed": "pnpm --filter @rwa-yield-router/database db:seed",
+    "db:verify": "pnpm --filter @rwa-yield-router/database db:verify",
+    "dev": "turbo run dev --parallel",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "turbo run lint",
+    "smoke": "tsx scripts/smoke.ts",
+    "test": "turbo run test",
+    "test:a11y": "playwright test --grep @a11y",
+    "test:e2e": "playwright test",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "typecheck": "turbo run typecheck",
+    "validate": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm test:integration && pnpm build"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.12.1",
+    "@playwright/test": "1.61.1",
+    "@types/node": "26.1.1",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "@vitest/coverage-v8": "4.1.10",
+    "eslint": "9.39.5",
+    "eslint-config-next": "16.2.10",
+    "prettier": "3.9.5",
+    "tsx": "4.23.1",
+    "turbo": "2.10.4",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.63.0",
+    "vitest": "4.1.10",
+    "zod": "4.4.3"
+  }
+}
