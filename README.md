@@ -64,6 +64,8 @@ The web image starts `node apps/web/server.js` on port 3000. The worker image st
 
 The worker image also contains the compiled database migration and bootstrap tools used by one-off release jobs. See [DEPLOYMENT.md](./DEPLOYMENT.md) for the exact commands and required ordering.
 
+The zero-budget [Render Blueprint](./render.yaml) runs the web and health-serving worker images as two Free web services against owner-supplied Supabase and Upstash endpoints. Free services sleep and do not meet the production Definition of Done; use the gated preview procedure and hourly best-effort worker wake described in [DEPLOYMENT.md](./DEPLOYMENT.md#zero-budget-render-preview).
+
 ## Documentation
 
 Repository rules and product decisions live in [AGENTS.md](./AGENTS.md), [REQUIREMENTS.md](./REQUIREMENTS.md), [ARCHITECTURE.md](./ARCHITECTURE.md), [DATA_SOURCES.md](./DATA_SOURCES.md), [RISK_METHODOLOGY.md](./RISK_METHODOLOGY.md), [SECURITY.md](./SECURITY.md), [TEST_PLAN.md](./TEST_PLAN.md), [DEPLOYMENT.md](./DEPLOYMENT.md), and [OPERATIONS_RUNBOOK.md](./OPERATIONS_RUNBOOK.md).

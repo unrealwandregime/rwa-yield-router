@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import type { LogContext } from "./logger.js";
+import type { LogContext, Logger } from "./logger.js";
 import { redactValue } from "./redaction.js";
 
 export interface ErrorReporter {
@@ -9,6 +9,8 @@ export interface ErrorReporter {
 
 export interface ErrorReporterOptions {
   readonly environment: string;
+  readonly logger?: Logger | undefined;
+  readonly mode?: "external" | "platform" | undefined;
   readonly service: string;
   readonly sentryDsn?: string | undefined;
   readonly otlpEndpoint?: string | undefined;
@@ -171,6 +173,32 @@ async function postPayload(
 }
 
 export function createConfiguredErrorReporter(options: ErrorReporterOptions): ErrorReporter {
+  if (options.mode === "platform") {
+    if (options.logger === undefined)
+      throw new Error("Platform observability requires a structured logger");
+
+    const logger = options.logger;
+    const now = options.now ?? (() => new Date());
+    const nextEventId = options.eventId ?? randomUUID;
+    return {
+      async capture(error, context) {
+        try {
+          const normalizedError = normalizeError(error);
+          logger.error("observability.error_captured", {
+            context: safeContext(context),
+            errorMessage: normalizedError.message,
+            errorType: normalizedError.type,
+            eventId: eventIdentifier(nextEventId()),
+            occurredAt: now().toISOString(),
+            reporter: "platform"
+          });
+        } catch {
+          // Error capture is best-effort and may not throw into application code.
+        }
+      }
+    };
+  }
+
   const sentry = parseSentryDsn(options.sentryDsn);
   const otlpEndpoint = parseOtlpEndpoint(options.otlpEndpoint);
   if (sentry === undefined && otlpEndpoint === undefined) return createNoopErrorReporter();

@@ -220,53 +220,51 @@ export const seedCanonicalReferenceData = async (database: Database): Promise<vo
     );
     if (!reviewer || !publisher)
       throw new Error("Canonical methodology principals were not seeded");
-    await transaction
+    const insertedMethodologies = await transaction
       .insert(riskMethodologyVersions)
       .values({
         calculationVersion: "risk-engine-v1.0.0",
         configuration: CANONICAL_METHODOLOGY_CONFIGURATION,
         description: "Published category-weighted comparative risk methodology v1.",
         effectiveFrom: CANONICAL_METHODOLOGY_EFFECTIVE_FROM,
-        publicationStatus: "PUBLISHED",
-        publishedAt: CANONICAL_METHODOLOGY_EFFECTIVE_FROM,
-        publishedByUserId: publisher.id,
-        reviewedAt: CANONICAL_METHODOLOGY_EFFECTIVE_FROM,
-        reviewedByUserId: reviewer.id,
+        publicationStatus: "DRAFT",
         version: CANONICAL_METHODOLOGY_VERSION
       })
-      .onConflictDoNothing({ target: riskMethodologyVersions.version });
+      .onConflictDoNothing({ target: riskMethodologyVersions.version })
+      .returning({ id: riskMethodologyVersions.id });
 
-    const [methodology] = await transaction
+    const [seededMethodology] = await transaction
       .select()
       .from(riskMethodologyVersions)
       .where(eq(riskMethodologyVersions.version, CANONICAL_METHODOLOGY_VERSION))
       .limit(1);
     if (
-      methodology === undefined ||
-      methodology.publicationStatus !== "PUBLISHED" ||
-      methodology.calculationVersion !== "risk-engine-v1.0.0" ||
-      methodology.effectiveFrom.getTime() !== CANONICAL_METHODOLOGY_EFFECTIVE_FROM.getTime() ||
-      !methodologyConfigurationSchema.safeParse(methodology.configuration).success
+      seededMethodology === undefined ||
+      seededMethodology.calculationVersion !== "risk-engine-v1.0.0" ||
+      seededMethodology.effectiveFrom.getTime() !==
+        CANONICAL_METHODOLOGY_EFFECTIVE_FROM.getTime() ||
+      !methodologyConfigurationSchema.safeParse(seededMethodology.configuration).success
     ) {
-      throw new Error(
-        "Published canonical methodology 1.0.0 has drifted; seed will not overwrite it"
-      );
+      throw new Error("Canonical methodology 1.0.0 has drifted; seed will not overwrite it");
     }
 
     const categoryRows = await transaction
       .select({ code: productCategories.code, id: productCategories.id })
       .from(productCategories);
     const categoryIds = new Map(categoryRows.map((category) => [category.code, category.id]));
-    await transaction
-      .insert(riskMethodologyCategoryWeights)
-      .values(buildCanonicalMethodologyWeightRows(methodology.id, categoryIds))
-      .onConflictDoNothing({
-        target: [
-          riskMethodologyCategoryWeights.methodologyVersionId,
-          riskMethodologyCategoryWeights.categoryId,
-          riskMethodologyCategoryWeights.factorCode
-        ]
-      });
+    if (insertedMethodologies.length > 0) {
+      if (seededMethodology.publicationStatus !== "DRAFT") {
+        throw new Error("New canonical methodology was not created as a draft");
+      }
+      await transaction
+        .insert(riskMethodologyCategoryWeights)
+        .values(buildCanonicalMethodologyWeightRows(seededMethodology.id, categoryIds));
+    } else if (seededMethodology.publicationStatus !== "PUBLISHED") {
+      throw new Error(
+        "Canonical methodology 1.0.0 already exists without being published; seed will not take over its review workflow"
+      );
+    }
+
     const persistedWeights = await transaction
       .select({
         category: productCategories.code,
@@ -278,7 +276,45 @@ export const seedCanonicalReferenceData = async (database: Database): Promise<vo
         productCategories,
         eq(riskMethodologyCategoryWeights.categoryId, productCategories.id)
       )
-      .where(eq(riskMethodologyCategoryWeights.methodologyVersionId, methodology.id));
+      .where(eq(riskMethodologyCategoryWeights.methodologyVersionId, seededMethodology.id));
     assertCanonicalMethodologyWeights(persistedWeights);
+
+    if (insertedMethodologies.length > 0) {
+      const [reviewedMethodology] = await transaction
+        .update(riskMethodologyVersions)
+        .set({
+          publicationStatus: "REVIEWED",
+          reviewedAt: CANONICAL_METHODOLOGY_EFFECTIVE_FROM,
+          reviewedByUserId: reviewer.id
+        })
+        .where(
+          and(
+            eq(riskMethodologyVersions.id, seededMethodology.id),
+            eq(riskMethodologyVersions.publicationStatus, "DRAFT")
+          )
+        )
+        .returning({ id: riskMethodologyVersions.id });
+      if (reviewedMethodology === undefined) {
+        throw new Error("Canonical methodology review transition failed");
+      }
+
+      const [publishedMethodology] = await transaction
+        .update(riskMethodologyVersions)
+        .set({
+          publicationStatus: "PUBLISHED",
+          publishedAt: CANONICAL_METHODOLOGY_EFFECTIVE_FROM,
+          publishedByUserId: publisher.id
+        })
+        .where(
+          and(
+            eq(riskMethodologyVersions.id, reviewedMethodology.id),
+            eq(riskMethodologyVersions.publicationStatus, "REVIEWED")
+          )
+        )
+        .returning({ id: riskMethodologyVersions.id });
+      if (publishedMethodology === undefined) {
+        throw new Error("Canonical methodology publication transition failed");
+      }
+    }
   });
 };

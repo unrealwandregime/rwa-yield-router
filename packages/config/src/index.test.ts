@@ -18,6 +18,7 @@ describe("loadServerConfig", () => {
 
     expect(config.nodeEnv).toBe("development");
     expect(config.morphoApiUrl).toBe("https://api.morpho.org/graphql");
+    expect(config.observability.mode).toBe("external");
     expect(config.worker.concurrency).toBe(4);
     expect(config.rpcUrls).toEqual({});
   });
@@ -78,6 +79,21 @@ describe("production service configuration", () => {
     expect(loadWorkerServerConfig(productionEnvironment).email.transport).toBe("resend");
   });
 
+  it("accepts explicit platform log observability without an external endpoint", () => {
+    const platformEnvironment = {
+      ...productionEnvironment,
+      OBSERVABILITY_MODE: "platform",
+      SENTRY_DSN: undefined
+    } as const;
+
+    expect(loadWebServerConfig(platformEnvironment).observability).toEqual({
+      mode: "platform"
+    });
+    expect(loadWorkerServerConfig(platformEnvironment).observability).toEqual({
+      mode: "platform"
+    });
+  });
+
   it("fails closed when critical production services are absent", () => {
     expect(() => loadWebServerConfig({ ...productionEnvironment, REDIS_URL: undefined })).toThrow(
       /REDIS_URL/u
@@ -85,5 +101,8 @@ describe("production service configuration", () => {
     expect(() =>
       loadWorkerServerConfig({ ...productionEnvironment, EMAIL_TRANSPORT: "disabled" })
     ).toThrow(/EMAIL_TRANSPORT=resend/u);
+    expect(() => loadWebServerConfig({ ...productionEnvironment, SENTRY_DSN: undefined })).toThrow(
+      /OBSERVABILITY_MODE=platform/u
+    );
   });
 });

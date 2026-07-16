@@ -1,0 +1,61 @@
+name: Wake zero-budget preview worker
+
+on:
+  schedule:
+    - cron: "41 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: preview-worker-wake
+  cancel-in-progress: true
+
+jobs:
+  wake:
+    if: ${{ vars.RENDER_WORKER_URL != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Wake worker and confirm liveness
+        env:
+          RENDER_WORKER_URL: ${{ vars.RENDER_WORKER_URL }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$RENDER_WORKER_URL" =~ ^https://[a-z0-9-]+\.onrender\.com/?$ ]]; then
+            echo "RENDER_WORKER_URL must be an HTTPS onrender.com service origin." >&2
+            exit 1
+          fi
+
+          health_url="${RENDER_WORKER_URL%/}/health/live"
+          response_file="$(mktemp)"
+          trap 'rm -f "$response_file"' EXIT
+
+          for attempt in 1 2 3 4 5 6; do
+            status="$(
+              curl \
+                --connect-timeout 10 \
+                --max-time 20 \
+                --output "$response_file" \
+                --silent \
+                --show-error \
+                --write-out "%{http_code}" \
+                "$health_url" || true
+            )"
+
+            if [[ "$status" =~ ^(2|3)[0-9]{2}$ ]]; then
+              echo "Preview worker answered $health_url with HTTP $status."
+              exit 0
+            fi
+
+            if [[ "$attempt" -lt 6 ]]; then
+              echo "Attempt $attempt returned HTTP ${status:-000}; waiting for cold start."
+              sleep 20
+            fi
+          done
+
+          echo "Preview worker did not become live after six bounded attempts." >&2
+          exit 1

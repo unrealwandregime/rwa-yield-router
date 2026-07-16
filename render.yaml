@@ -1,0 +1,110 @@
+# yaml-language-server: $schema=https://render.com/schema/render.yaml.json
+
+# Zero-budget preview topology only. Free Render services sleep and do not meet
+# this repository's production Definition of Done. See DEPLOYMENT.md.
+previews:
+  generation: "off"
+
+envVarGroups:
+  - name: rwa-yield-router-preview-shared-secrets
+    envVars:
+      - key: DATA_ENCRYPTION_KEY
+        generateValue: true
+
+services:
+  - type: web
+    name: rwa-yield-router-web
+    runtime: docker
+    region: singapore
+    plan: free
+    dockerfilePath: ./apps/web/Dockerfile
+    dockerContext: .
+    autoDeployTrigger: "off"
+    healthCheckPath: /health/ready
+    maxShutdownDelaySeconds: 60
+    envVars:
+      - fromGroup: rwa-yield-router-preview-shared-secrets
+      - key: NODE_ENV
+        value: production
+      - key: APP_URL
+        sync: false
+      - key: LOG_LEVEL
+        value: info
+      - key: PORT
+        value: "10000"
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        sync: false
+      - key: RPC_URL_ETHEREUM
+        sync: false
+      - key: RPC_URL_BASE
+        sync: false
+      - key: MORPHO_API_URL
+        value: https://api.morpho.org/graphql
+      - key: EMAIL_TRANSPORT
+        value: disabled
+      - key: OBSERVABILITY_MODE
+        value: platform
+      - key: SECURITY_CONTACT_URL
+        sync: false
+
+  # Render does not offer free background workers. This preview runs the existing
+  # worker image as a web service through its bounded health server. The hourly
+  # GitHub wake-up is best-effort and does not provide continuous scheduling.
+  - type: web
+    name: rwa-yield-router-worker-preview
+    runtime: docker
+    region: singapore
+    plan: free
+    dockerfilePath: ./apps/worker/Dockerfile
+    dockerContext: .
+    autoDeployTrigger: "off"
+    healthCheckPath: /health/ready
+    maxShutdownDelaySeconds: 120
+    envVars:
+      - fromGroup: rwa-yield-router-preview-shared-secrets
+      - key: NODE_ENV
+        value: production
+      - key: APP_URL
+        sync: false
+      - key: LOG_LEVEL
+        value: info
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: CRON_SHARED_SECRET
+        generateValue: true
+      - key: WORKER_ENABLED
+        value: "true"
+      - key: WORKER_PORT
+        value: "10000"
+      - key: WORKER_CONCURRENCY
+        value: "2"
+      - key: SCHEDULES_ENABLED
+        value: "true"
+      - key: INGEST_INTERVAL_MS
+        value: "900000"
+      - key: RISK_INTERVAL_MS
+        value: "3600000"
+      - key: ALERT_INTERVAL_MS
+        value: "300000"
+      - key: ROLLUP_INTERVAL_MS
+        value: "86400000"
+      - key: MORPHO_API_URL
+        value: https://api.morpho.org/graphql
+      - key: EMAIL_TRANSPORT
+        value: resend
+      - key: EMAIL_FROM
+        value: onboarding@resend.dev
+      - key: RESEND_API_KEY
+        sync: false
+      - key: OBSERVABILITY_MODE
+        value: platform
+      - key: SECURITY_CONTACT_URL
+        sync: false

@@ -103,6 +103,56 @@ describe("configured error reporter", () => {
     });
   });
 
+  it("writes bounded redacted capture events through the platform logger", async () => {
+    const lines: string[] = [];
+    const logger = createStructuredLogger({
+      environment: "production",
+      now,
+      service: "rwa-yield-router-worker",
+      write: (line) => lines.push(line)
+    });
+    const reporter = createConfiguredErrorReporter({
+      environment: "production",
+      eventId,
+      logger,
+      mode: "platform",
+      now,
+      service: "rwa-yield-router-worker"
+    });
+
+    await reporter.capture(new Error("failed for person@example.com"), {
+      code: "JOB_FAILED",
+      token: "top-secret"
+    });
+
+    expect(lines).toHaveLength(1);
+    const record = JSON.parse(lines[0] ?? "{}") as Record<string, unknown>;
+    expect(record).toMatchObject({
+      context: { code: "JOB_FAILED", token: REDACTED },
+      environment: "production",
+      errorMessage: "failed for [REDACTED]",
+      errorType: "Error",
+      event: "observability.error_captured",
+      eventId: "11111111222233334444555555555555",
+      occurredAt: "2026-07-13T00:00:00.000Z",
+      reporter: "platform",
+      service: "rwa-yield-router-worker",
+      severity: "error"
+    });
+    expect(lines[0]).not.toContain("person@example.com");
+    expect(lines[0]).not.toContain("top-secret");
+  });
+
+  it("fails closed when platform mode has no structured logger", () => {
+    expect(() =>
+      createConfiguredErrorReporter({
+        environment: "production",
+        mode: "platform",
+        service: "worker"
+      })
+    ).toThrow(/structured logger/u);
+  });
+
   it("ignores invalid destinations and transport failures", async () => {
     let calls = 0;
     const failingTransport: typeof fetch = async () => {

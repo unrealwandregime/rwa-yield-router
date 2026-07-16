@@ -51,6 +51,7 @@ const serverEnvironmentSchema = z
     RESEND_API_KEY: optionalSecretSchema,
     TELEGRAM_BOT_TOKEN: optionalSecretSchema,
     TELEGRAM_WEBHOOK_SECRET: optionalSecretSchema,
+    OBSERVABILITY_MODE: z.enum(["external", "platform"]).default("external"),
     SENTRY_DSN: optionalHttpsUrlSchema,
     OTEL_EXPORTER_OTLP_ENDPOINT: optionalHttpsUrlSchema,
     SECURITY_CONTACT_URL: optionalHttpsUrlSchema,
@@ -153,6 +154,7 @@ export type ServerConfig = Readonly<{
     webhookSecret?: string | undefined;
   }>;
   observability: Readonly<{
+    mode: z.infer<typeof serverEnvironmentSchema>["OBSERVABILITY_MODE"];
     sentryDsn?: string | undefined;
     otlpEndpoint?: string | undefined;
   }>;
@@ -219,10 +221,13 @@ export function loadServerConfig(
       botToken: value.TELEGRAM_BOT_TOKEN,
       webhookSecret: value.TELEGRAM_WEBHOOK_SECRET
     }),
-    observability: includeDefined({
-      sentryDsn: value.SENTRY_DSN,
-      otlpEndpoint: value.OTEL_EXPORTER_OTLP_ENDPOINT
-    }),
+    observability: {
+      mode: value.OBSERVABILITY_MODE,
+      ...includeDefined({
+        sentryDsn: value.SENTRY_DSN,
+        otlpEndpoint: value.OTEL_EXPORTER_OTLP_ENDPOINT
+      })
+    },
     worker: {
       enabled: value.WORKER_ENABLED,
       port: value.WORKER_PORT,
@@ -287,8 +292,11 @@ export function loadWebServerConfig(
     { name: "NEXT_PUBLIC_SUPABASE_ANON_KEY", value: config.supabaseAnonKey },
     { name: "DATA_ENCRYPTION_KEY", value: config.dataEncryptionKey },
     {
-      name: "SENTRY_DSN or OTEL_EXPORTER_OTLP_ENDPOINT",
-      value: config.observability.sentryDsn ?? config.observability.otlpEndpoint
+      name: "OBSERVABILITY_MODE=platform or SENTRY_DSN or OTEL_EXPORTER_OTLP_ENDPOINT",
+      value:
+        config.observability.mode === "platform"
+          ? config.observability.mode
+          : (config.observability.sentryDsn ?? config.observability.otlpEndpoint)
     }
   ]);
   return config;
@@ -309,8 +317,11 @@ export function loadWorkerServerConfig(
     { name: "REDIS_URL", value: config.redisUrl },
     { name: "DATA_ENCRYPTION_KEY", value: config.dataEncryptionKey },
     {
-      name: "SENTRY_DSN or OTEL_EXPORTER_OTLP_ENDPOINT",
-      value: config.observability.sentryDsn ?? config.observability.otlpEndpoint
+      name: "OBSERVABILITY_MODE=platform or SENTRY_DSN or OTEL_EXPORTER_OTLP_ENDPOINT",
+      value:
+        config.observability.mode === "platform"
+          ? config.observability.mode
+          : (config.observability.sentryDsn ?? config.observability.otlpEndpoint)
     }
   ]);
   if (config.nodeEnv === "production" && config.email.transport !== "resend")

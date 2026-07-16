@@ -36,6 +36,7 @@ const logger = createStructuredLogger({
 });
 const errorReporter = createConfiguredErrorReporter({
   environment: config.nodeEnv,
+  logger,
   service: "rwa-yield-router-worker",
   ...config.observability
 });

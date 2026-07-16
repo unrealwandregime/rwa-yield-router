@@ -181,6 +181,7 @@ Production CSP is generated with a per-request nonce. `unsafe-inline` and `unsaf
 - Use structured logs with timestamp, severity, service, environment, event name, correlation ID, and safe entity IDs.
 - Redact authorization headers, cookies, magic links, passwords, tokens, connection strings, webhook signatures, provider bodies that may contain credentials, full email addresses, and user-linked wallet addresses.
 - Error-monitoring payloads use the same redaction rules and disable automatic capture of request bodies and headers unless explicitly allowlisted.
+- `OBSERVABILITY_MODE=platform` may send explicit worker error captures to the same redacted structured stdout/stderr stream only when the deployment host restricts log access. It must not bypass central redaction or add stack traces, request bodies, or headers. The default `external` mode requires a configured HTTPS Sentry or OTLP destination in production.
 - Security and admin audit logs are access-controlled and tamper-evident or append-only. Application operators cannot silently edit history.
 
 ## Threat-control matrix

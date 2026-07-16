@@ -55,8 +55,29 @@ describe("database migrations against an isolated PostgreSQL database", () => {
     expect(productCountRows[0]?.count).toBe(0);
   });
 
-  it("seeds the immutable 96-row methodology weight set idempotently", async () => {
+  it("publishes the canonical methodology after its 96 weights and remains idempotent", async () => {
     await seedCanonicalReferenceData(database);
+    const methodologyRows = await database.$client<
+      Array<{
+        readonly publication_status: string;
+        readonly published_by_user_id: string | null;
+        readonly reviewed_by_user_id: string | null;
+      }>
+    >`
+      select publication_status::text,
+             published_by_user_id::text,
+             reviewed_by_user_id::text
+      from risk_methodology_versions
+      where version = '1.0.0'
+    `;
+    expect(methodologyRows).toHaveLength(1);
+    expect(methodologyRows[0]?.publication_status).toBe("PUBLISHED");
+    expect(methodologyRows[0]?.reviewed_by_user_id).not.toBeNull();
+    expect(methodologyRows[0]?.published_by_user_id).not.toBeNull();
+    expect(methodologyRows[0]?.published_by_user_id).not.toBe(
+      methodologyRows[0]?.reviewed_by_user_id
+    );
+
     const rows = await database.$client<
       Array<{ readonly category: string; readonly count: number; readonly total: string }>
     >`

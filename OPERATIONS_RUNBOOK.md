@@ -58,6 +58,16 @@ Initial alert thresholds are versioned configuration and should be tuned after b
 - Alert on any unexpected dead-letter job, scheduler heartbeat gap, admin-role change, webhook signature spike, or production secret-scan finding.
 - Warn on notification failure above 5% for 15 minutes; page on broad alert loss or spam.
 
+## Zero-budget preview controls
+
+- `render.yaml` is a preview-only topology of two Render Free web services. It is not a production release, availability target, or substitute for the persistent worker and restorable datastores required by the Definition of Done.
+- Automatic deploys are disabled. Run the migration, reference seed, catalog import, and verification gate from an audited release workspace; then deploy the worker preview before web from the identical commit.
+- The worker preview sleeps after idle periods. The hourly GitHub wake request is best-effort and does not guarantee schedule cadence. Treat stale scheduler heartbeat, late queue jobs, or missed alert windows as an expected preview limitation that must remain visible, not as evidence that data is current.
+- Monitor the shared Render running-hour allowance plus Supabase, Upstash, Resend, and GitHub Actions quotas. Stop ingestion or alerts before a hard limit can create partial processing; never silently drop or fabricate work.
+- Render variables marked `sync: false` are managed in each service after initial creation. Compare shared values across both services without printing them, and rotate `DATA_ENCRYPTION_KEY` only with an explicit encrypted-data migration and rollback plan.
+- The Blueprint sets `OBSERVABILITY_MODE=platform`. Review Render's host-collected stdout/stderr for bounded `observability.error_captured` records; the worker reporter redacts them before emission. Free log retention and the absence of an independent alerting destination remain expected preview gaps.
+- Supabase Free has no managed backups or PITR. Make reviewed off-site logical dumps for preview recovery, but do not claim that manual preview dumps satisfy the production backup and restore gate.
+
 ## Standard incident sequence
 
 1. **Acknowledge and classify.** Assign commander/scribe, state user and data impact, record the first alert and release/provider changes.
