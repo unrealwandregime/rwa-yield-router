@@ -7,6 +7,7 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 0,
+  workers: process.env.CI ? 1 : undefined,
   reporter: process.env.CI ? [["html", { open: "never" }], ["github"]] : "list",
   use: {
     baseURL,
@@ -17,9 +18,10 @@ export default defineConfig({
   webServer: process.env.PLAYWRIGHT_BASE_URL
     ? undefined
     : {
-        command: "pnpm --filter @rwa-yield-router/web dev",
+        command:
+          "pnpm exec turbo run build --filter=@rwa-yield-router/web^... --filter=!@rwa-yield-router/web && pnpm --filter @rwa-yield-router/web dev",
         reuseExistingServer: !process.env.CI,
-        timeout: 120_000,
+        timeout: 180_000,
         url: baseURL
       },
   projects: [

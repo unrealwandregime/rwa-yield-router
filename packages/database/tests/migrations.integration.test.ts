@@ -21,6 +21,18 @@ if (!databaseName.toLocaleLowerCase("en-US").includes("test")) {
 
 let database: Database;
 
+const errorChainText = (value: unknown): string => {
+  const messages: string[] = [];
+  const seen = new Set<unknown>();
+  let current: unknown = value;
+  while (current instanceof Error && !seen.has(current)) {
+    seen.add(current);
+    messages.push(current.message);
+    current = current.cause;
+  }
+  return messages.join("\n");
+};
+
 describe("database migrations against an isolated PostgreSQL database", () => {
   beforeAll(async () => {
     database = createDatabase({
@@ -138,10 +150,16 @@ describe("database migrations against an isolated PostgreSQL database", () => {
       throw new Error("Fixture observation insert returned no row");
     }
 
-    await expect(
-      database.execute(
+    let mutationError: unknown;
+    try {
+      await database.execute(
         sql`update source_observations set normalized_numeric_value = 1 where id = ${observation.id}`
-      )
-    ).rejects.toThrow(/append-only/i);
+      );
+    } catch (error) {
+      mutationError = error;
+    }
+
+    expect(mutationError).toBeInstanceOf(Error);
+    expect(errorChainText(mutationError)).toMatch(/append-only/i);
   });
 });
