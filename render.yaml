@@ -21,7 +21,6 @@ services:
     dockerContext: .
     autoDeployTrigger: "off"
     healthCheckPath: /health/ready
-    maxShutdownDelaySeconds: 60
     envVars:
       - fromGroup: rwa-yield-router-preview-shared-secrets
       - key: NODE_ENV
@@ -65,7 +64,6 @@ services:
     dockerContext: .
     autoDeployTrigger: "off"
     healthCheckPath: /health/ready
-    maxShutdownDelaySeconds: 120
     envVars:
       - fromGroup: rwa-yield-router-preview-shared-secrets
       - key: NODE_ENV
