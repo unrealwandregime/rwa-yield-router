@@ -1,7 +1,8 @@
 import { NextRequest } from "next/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createWebVitalLogRecord, POST } from "./route";
+import { createWebVitalLogRecord } from "@/lib/web-vitals";
+import { POST } from "./route";
 
 const token = "A".repeat(43);
 

@@ -9,7 +9,9 @@ export function RecordTable({ records }: { records: CatalogRecord[] }) {
   return (
     <div className="table-wrap">
       <table className="data-table">
-        <caption className="sr-only">Published routes and latest sourced analytical state</caption>
+        <caption className="sr-only">
+          Sourced research routes with admission and latest analytical state
+        </caption>
         <thead>
           <tr>
             <th scope="col">Product / route</th>

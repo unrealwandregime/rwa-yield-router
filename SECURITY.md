@@ -116,7 +116,7 @@ Production administrators must use unique accounts, provider-enforced MFA, and n
 
 - Production cookies are `Secure`, `HttpOnly`, scoped narrowly, and use `SameSite=Lax` or `Strict` unless a documented auth callback requires a narrower exception.
 - Rotate the session identifier on sign-in, privilege change, recent-auth completion, and credential recovery. Revoke sessions on passwordless-link replay, account disablement, and administrator role change.
-- Cookie-authenticated mutations require same-origin enforcement and anti-CSRF tokens. OAuth/OIDC uses exact redirect URIs, `state`, `nonce`, and PKCE.
+- Cookie-authenticated mutations require same-origin enforcement and anti-CSRF tokens. In production, the validated canonical `APP_URL` defines the expected browser origin, secure CSRF cookie namespace, and same-origin authentication redirect base; internal proxy URLs and forwarded host headers are not trusted for those decisions. OAuth/OIDC uses exact redirect URIs, `state`, `nonce`, and PKCE.
 - CORS is denied by default. Public read API origins and methods are explicitly configured; credentials are not allowed with wildcard origins.
 - Redirect destinations are server-generated or matched against an exact local-path or host allowlist. Supplied absolute URLs are not accepted for post-auth navigation.
 - Authentication and recovery endpoints use account-aware and IP-aware throttles, generic responses, exponential delay, and provider-supported bot protection to limit brute force and account enumeration.
@@ -156,6 +156,7 @@ Production CSP is generated with a per-request nonce. `unsafe-inline` and `unsaf
 ### Rate limiting and denial-of-service controls
 
 - Apply layered limits by IP, authenticated account, API key, route class, and provider cost. Return `429` with a bounded retry hint.
+- `TRUSTED_PROXY_MODE=none` is the default. The Render preview mode accepts only the first syntactically valid `x-forwarded-for` address supplied by Render's edge and ignores client-selected `cf-connecting-ip` and `x-real-ip` headers; changing hosts requires a new documented proxy trust review.
 - Use low ceilings for authentication, exports, optimizer runs, broad historical queries, admin search, test notifications, and webhook failures.
 - Enforce server-side maximums for rows, products compared, allocation variables, constraints, date span, chart points, and solver time. Reject infeasible or oversized work before database or solver execution.
 - Cache public aggregates, use statement timeouts and indexed query shapes, paginate history, and move approved expensive exports to bounded background jobs.
@@ -210,18 +211,18 @@ Production CSP is generated with a per-request nonce. `unsafe-inline` and `unsaf
 
 No secret may use a client-exposed/public-prefixed variable. A public-prefixed variable is permitted only when its value is intentionally public and documented as such. Real values live in the deployment provider’s encrypted secret store; `.env.example` contains names and descriptions only.
 
-| Secret class                                     | Canonical environment name(s)                         | Consumer                                 | Rotation expectation                                                                |
-| ------------------------------------------------ | ----------------------------------------------------- | ---------------------------------------- | ----------------------------------------------------------------------------------- |
-| PostgreSQL application and migration credentials | `DATABASE_URL`, `DIRECT_DATABASE_URL`                 | Web, worker, migration job               | Separate least-privilege users; rotate at least every 90 days and on access change  |
-| Redis/queue credential                           | `REDIS_URL`                                           | Web and worker                           | TLS, scoped network access; rotate at least every 90 days                           |
-| Auth session and provider credentials            | `AUTH_SECRET`, `AUTH_CLIENT_ID`, `AUTH_CLIENT_SECRET` | Web/auth callbacks                       | Rotate session secret with overlap; provider credential at least every 90 days      |
-| Field encryption key                             | `DATA_ENCRYPTION_KEY`                                 | Server-side sensitive fields, if enabled | Versioned envelope key; annual rotation or immediately on suspicion                 |
-| Internal job and cron identity                   | `INTERNAL_JOB_TOKEN`, `CRON_SHARED_SECRET`            | Scheduler and internal endpoints         | Distinct scoped values; rotate at least every 90 days                               |
-| Data, RPC, explorer, and price-provider keys     | Provider-specific server-only variables               | Worker adapters                          | Scope per provider/environment; rotate at least every 180 days or provider guidance |
-| Email credential and webhook secret              | `EMAIL_API_KEY`, `EMAIL_WEBHOOK_SECRET`               | Worker/webhook receiver                  | Separate send/verify credentials; rotate at least every 180 days                    |
-| Telegram bot and webhook credentials             | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`       | Worker/webhook receiver                  | Configure only when owner supplies them; rotate on operator/bot change              |
-| Error-monitoring auth token                      | `ERROR_TRACKING_AUTH_TOKEN`                           | CI release upload/server                 | Write-minimal scope; rotate at least every 180 days                                 |
-| Backup/export encryption credential              | Provider-managed or `BACKUP_ENCRYPTION_KEY`           | Backup service only                      | Keep outside app runtime; rotate under provider procedure                           |
+| Secret class                                     | Canonical environment name(s)                                                                                                | Consumer                                 | Rotation expectation                                                                |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- | ----------------------------------------------------------------------------------- |
+| PostgreSQL application and migration credentials | `DATABASE_URL`, `DATABASE_MIGRATION_URL`; protected preview aliases `PREVIEW_DATABASE_URL`, `PREVIEW_DATABASE_MIGRATION_URL` | Web, worker, manual migration job        | Separate least-privilege users; rotate at least every 90 days and on access change  |
+| Redis/queue credential                           | `REDIS_URL`                                                                                                                  | Web and worker                           | TLS, scoped network access; rotate at least every 90 days                           |
+| Auth session and provider credentials            | `AUTH_SECRET`, `AUTH_CLIENT_ID`, `AUTH_CLIENT_SECRET`                                                                        | Web/auth callbacks                       | Rotate session secret with overlap; provider credential at least every 90 days      |
+| Field encryption key                             | `DATA_ENCRYPTION_KEY`                                                                                                        | Server-side sensitive fields, if enabled | Versioned envelope key; annual rotation or immediately on suspicion                 |
+| Internal job and cron identity                   | `INTERNAL_JOB_TOKEN`, `CRON_SHARED_SECRET`                                                                                   | Scheduler and internal endpoints         | Distinct scoped values; rotate at least every 90 days                               |
+| Data, RPC, explorer, and price-provider keys     | Provider-specific server-only variables                                                                                      | Worker adapters                          | Scope per provider/environment; rotate at least every 180 days or provider guidance |
+| Email credential and webhook secret              | `EMAIL_API_KEY`, `EMAIL_WEBHOOK_SECRET`                                                                                      | Worker/webhook receiver                  | Separate send/verify credentials; rotate at least every 180 days                    |
+| Telegram bot and webhook credentials             | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`                                                                              | Worker/webhook receiver                  | Configure only when owner supplies them; rotate on operator/bot change              |
+| Error-monitoring auth token                      | `ERROR_TRACKING_AUTH_TOKEN`                                                                                                  | CI release upload/server                 | Write-minimal scope; rotate at least every 180 days                                 |
+| Backup/export encryption credential              | Provider-managed or `BACKUP_ENCRYPTION_KEY`                                                                                  | Backup service only                      | Keep outside app runtime; rotate under provider procedure                           |
 
 Each secret has an owner, scope, creation date, last rotation date, next review, and revocation procedure in the operator secret register. Secrets are never sent in URLs, screenshots, support messages, telemetry, downloadable reports, or Git history. Local development uses distinct non-production credentials.
 
@@ -250,6 +251,8 @@ Deletion must remove or irreversibly anonymize account-linked records, revoke se
 
 - Protect the main branch and production environment; require review for auth, authorization, admin, ingestion fetch, methodology, migration, workflow, and secret-handling changes.
 - Install from the committed lockfile. Pin third-party CI actions to immutable commits and use minimal, non-root production images where containers are used.
+- Pin container base and CI service images by digest. CI runs pinned CodeQL analysis and Trivy high/critical image scans before an automatic release workflow may publish images.
+- Keep GitHub secret scanning, push protection, vulnerability alerts, and automated security fixes enabled for the public repository.
 - Run formatting, lint, type checking, unit/integration/E2E tests, production build, migration validation, secret scanning, dependency audit, and static security checks on pull requests.
 - Resolve exploitable critical and high findings before release. A temporary exception requires owner, evidence, compensating controls, expiry, and security approval; it cannot be an ignored test or disabled rule.
 - Generate software-bill-of-materials and provenance artifacts when supported. Keep build and runtime identities separate.

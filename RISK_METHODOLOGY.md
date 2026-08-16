@@ -98,6 +98,8 @@ The v1 data-quality factor is itself calculated from:
 
 Freshness is evaluated against each metric’s configured cadence, not one global timeout. An overdue observation changes status to `STALE`; a missing value is never replaced with zero. Active adapter failures and unexplained source disagreement create data-quality events and may make the route ineligible for normal optimization.
 
+Worker recalculation selects exactly one published methodology whose half-open effective interval contains the calculation cutoff, then loads and validates its complete relational category-weight table. Overlapping intervals, unsupported calculation versions or policy shapes, and incomplete weights fail closed. Factor evidence is re-evaluated at that same cutoff against the source registry’s freshness threshold, publication/lifecycle state, and observation/fetch timestamps. Writing a newer composite never makes old factor evidence current again.
+
 ## Category weights — methodology v1
 
 Weights are percentages of the composite route score. Every category totals exactly 100%. The weight table is configuration stored with the immutable methodology version; application code must validate the total before publication.
@@ -147,6 +149,12 @@ compositeRisk = sum(w_i * effectiveFactor_i) / 100
 The result is bounded to `[0, 100]` and rounded to two decimals for display. The record stores unrounded input values, each observation reference, weights, unknown proxies, factor timestamps, calculation time, and methodology version.
 
 The composite is `PROVISIONAL` when any positively weighted factor uses the unknown proxy. The UI shows evidence coverage and names every unavailable factor. Routes with missing critical identity, eligibility, status, price/NAV, or yield-source evidence are excluded from the standard optimizer even if a provisional composite can be calculated.
+
+A request-time calculation supplied with no factor evidence is proxy-only: its evidence coverage is
+`0%`, every positively weighted factor remains unavailable, and any displayed composite is
+`ESTIMATED`. It must never be labelled current, verified, or direct-API risk merely because the APY
+and liquidity came from an official provider. Request-time values do not acquire persisted
+observation IDs and cannot satisfy optimizer provenance gates.
 
 ## Comparative risk-adjusted APY
 
@@ -200,6 +208,9 @@ Example: cash-equivalent on-chain liquidity has a 15% category weight. At a liqu
 
 Rules:
 
+- A provider field named net APY is not automatically the user's final net APY. Morpho provider net
+  APY is displayed as provider-reported before user-specific transaction costs and is used only as
+  a before-transaction-cost input when matching observations have been persisted.
 - `netAPY` must already account for disclosed fees and horizon-annualized entry, exit, gas, and slippage estimates. Risk penalties do not replace transaction-cost calculations.
 - If net APY is unavailable, Comparative risk-adjusted APY is unavailable.
 - A provisional score can produce a provisional ranking value using the visible unknown proxy, but not an apparently verified value.

@@ -30,4 +30,33 @@ describe("database environment", () => {
       "Invalid DATABASE_URL"
     );
   });
+
+  it("requires explicit TLS for runtime and migration URLs in production", () => {
+    expect(() =>
+      readDatabaseUrl({
+        DATABASE_URL: "postgresql://app:secret@db.example.test/router",
+        NODE_ENV: "production"
+      })
+    ).toThrow(/sslmode=require/u);
+    expect(() =>
+      readMigrationDatabaseUrl({
+        DATABASE_MIGRATION_URL: "postgresql://owner:secret@db.example.test/router",
+        DATABASE_URL: "postgresql://app:secret@db.example.test/router?sslmode=require",
+        NODE_ENV: "production"
+      })
+    ).toThrow(/sslmode=require/u);
+    expect(
+      readDatabaseUrl({
+        DATABASE_URL: "postgresql://app:secret@db.example.test/router?sslmode=verify-full",
+        NODE_ENV: "production"
+      })
+    ).toContain("sslmode=verify-full");
+    expect(() =>
+      readDatabaseUrl({
+        DATABASE_URL:
+          "postgresql://app:secret@db.example.test/router?sslmode=require&sslmode=disable",
+        NODE_ENV: "production"
+      })
+    ).toThrow(/exactly one sslmode/u);
+  });
 });

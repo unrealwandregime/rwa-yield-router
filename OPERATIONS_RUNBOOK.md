@@ -62,6 +62,7 @@ Initial alert thresholds are versioned configuration and should be tuned after b
 
 - `render.yaml` is a preview-only topology of two Render Free web services. It is not a production release, availability target, or substitute for the persistent worker and restorable datastores required by the Definition of Done.
 - Automatic deploys are disabled. Run the migration, reference seed, catalog import, and verification gate from an audited release workspace; then deploy the worker preview before web from the identical commit.
+- Catalog imports may update evidence/status for the reviewed identity set, but an external-ID addition/removal or stable-slug replacement is intentionally blocked until a versioned retirement/replacement workflow has been implemented and rehearsed. Never bypass this guard with direct SQL.
 - The worker preview sleeps after idle periods. The hourly GitHub wake request is best-effort and does not guarantee schedule cadence. Treat stale scheduler heartbeat, late queue jobs, or missed alert windows as an expected preview limitation that must remain visible, not as evidence that data is current.
 - Monitor the shared Render running-hour allowance plus Supabase, Upstash, Resend, and GitHub Actions quotas. Stop ingestion or alerts before a hard limit can create partial processing; never silently drop or fabricate work.
 - Render variables marked `sync: false` are managed in each service after initial creation. Compare shared values across both services without printing them, and rotate `DATA_ENCRYPTION_KEY` only with an explicit encrypted-data migration and rollback plan.
@@ -112,6 +113,15 @@ Initial alert thresholds are versioned configuration and should be tuned after b
 5. Quarantine poison jobs in the dead-letter queue. Replay only selected jobs after schema revalidation and an audited reason.
 6. Recover oldest critical freshness work first, then normal order. Confirm duplicate prevention and that old observations cannot overwrite newer ones.
 7. Close when age and depth return to baseline, freshness recovers, no locks are orphaned, and two schedule cycles succeed.
+
+For ingestion incidents, reconcile the terminal `job_runs` row with the same-correlation
+`adapter_health` row. A final failure must also have one redacted `dead_letter_jobs` row; the Redis
+dead-letter queue alone is not durable release evidence. For daily history, verify that rollups cover
+only completed UTC days and still reference the selected immutable yield snapshot.
+When a prior interrupted release left an observation without its typed snapshot, replay the exact
+idempotent ingestion job: the reconciliation path must insert only the missing typed row. For alert
+incidents, verify every deduplicated event has the expected destination-delivery rows before replay;
+re-evaluation reconciles missing rows without duplicating existing deliveries.
 
 ## Runbook: stale data
 

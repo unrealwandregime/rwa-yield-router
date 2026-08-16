@@ -1,12 +1,10 @@
 "use client";
 
 import { GitCompareArrows, Search } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import type { CatalogRecord } from "@/lib/catalog";
 
 export function ComparisonPicker({ records }: { records: CatalogRecord[] }) {
-  const router = useRouter();
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const filtered = useMemo(() => {
@@ -63,7 +61,9 @@ export function ComparisonPicker({ records }: { records: CatalogRecord[] }) {
       <button
         className="button button-primary"
         disabled={selected.length < 2}
-        onClick={() => router.push(`/compare?routes=${selected.join(",")}`)}
+        onClick={() => {
+          window.location.assign(`/compare?routes=${selected.map(encodeURIComponent).join(",")}`);
+        }}
         type="button"
       >
         <GitCompareArrows aria-hidden size={15} /> Compare {selected.length || "selected"}

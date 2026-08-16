@@ -97,13 +97,27 @@ source_registry records canonical URL, type, ownership, terms/licence, limits, p
 
 Typed yield, price, NAV, TVL/AUM, liquidity, and utilization snapshots point to selected observations. Competing observations remain. data_quality_events record conflicts, implausible changes, missing/stale transitions, and overrides. adapter_health and job_runs hold operational history.
 
+Daily yield history rollups select the deterministic closing available snapshot for each completed
+UTC day. Each rollup retains a foreign key to that immutable yield snapshot (and therefore its
+source observation), records its data cutoff and calculation version, excludes the open UTC day,
+and accepts only snapshots whose creation and source verification/fetch timestamps do not exceed
+the recorded cutoff. Ties prefer lower numeric source priority, later fetch time, then stable
+provenance, calculation, source-code, and idempotency keys. The bounded 25,000-bucket job fails
+without writes instead of truncating. A database trigger requires every duplicated rollup value to
+exactly match the referenced snapshot. The job upserts only when a later admitted source snapshot
+changes the selected close. Historical API
+points join the rollup or raw fallback snapshot through its exact source observation to the source
+registry; every point serializes the source identifier and canonical URL, observation identifier,
+observed/fetched/verified timestamps, confidence and status at both observation and snapshot layers,
+adapter/source revision, selection and calculation versions, and rollup cutoff when applicable.
+
 An idempotency key over source, external entity, metric, observed time, and source revision prevents duplicate ingestion. A newer adapter version adds a record; it does not rewrite prior evidence.
 
 ### 6.3 Analytics and users
 
 apy_components and fee_schedules retain component semantics and effective intervals. Risk factor/composite snapshots retain inputs, evidence, confidence, explanations, and immutable methodology version. Simulation/allocation records retain canonical constraints, data cutoff, candidate/exclusion facts, solver and calculation versions, results, and diagnostics.
 
-Auth subjects map to local users. Preferences, watchlists, comparisons, simulations, and alerts are owner-scoped. Roles are explicit. admin_audit_logs is append-only with actor, time, target, before/after, reason, source, verification date, and correlation ID.
+Auth subjects map to local users. Preferences, watchlists, saved screener views, comparisons, simulations, and alerts are owner-scoped. Saved comparisons contain two to five ordered route references that were current, active, and published when created or replaced; the references remain as private history if a route later leaves public availability, while the reconstructed public URL resolves against current visibility. Saved views contain only validated canonical filters, sort, and allowlisted column identifiers. Public share URLs are reconstructed from route slugs or filter parameters and never expose private saved-object identifiers. Roles are explicit. admin_audit_logs is append-only with actor, time, target, before/after, reason, source, verification date, and correlation ID.
 
 ### 6.4 Storage rules
 
@@ -124,13 +138,20 @@ Flow:
 1. scheduler enqueues a versioned idempotent job under provider limits;
 2. worker performs a bounded allowlisted request;
 3. response is parsed, normalized, and quality checked;
-4. observation and job outcome commit atomically;
-5. selection policy writes the typed snapshot;
+4. the append-only observation and its corresponding typed snapshot commit atomically;
+5. after durable effects commit, the job outcome and adapter-health record commit together;
 6. a transactional outbox triggers rollups, risk, cache invalidation, and alerts.
 
 Selection rejects invalid/future/semantically incompatible data, then ranks official precedence, metric fitness, freshness, confidence, and source health. Material conflicts create quality events. The selected snapshot records policy version and candidate IDs. Fallback retains its real confidence and never converts absence to zero.
 
 Jobs have stable idempotency keys, locks, timeouts, bounded attempts, exponential backoff with jitter, circuit breakers, per-provider rate/concurrency limits, dead letters, and correlation IDs. Schedules in REQUIREMENTS.md are configuration. A provider outage preserves the last valid observation until its status becomes stale or unavailable.
+
+Every completed ingestion attempt transactionally finalizes its job run and appends adapter health.
+Final failures also append a redacted durable dead-letter record; Redis dead-letter payloads are not
+the authoritative operational history. A duplicate observation still reconciles its typed snapshot,
+so a partial write left by an older interrupted release cannot become a permanently orphaned metric.
+Alert-event creation, delivery-outbox reconciliation, and the rule transition share one transaction;
+a retry loads the existing deduplicated event and repairs any missing delivery rows.
 
 ## 8. Analytics
 
@@ -167,7 +188,7 @@ For allocation xi:
 
 Grouped bounds cover product, issuer, protocol, chain, category, stablecoin, DeFi, RWA, and gold; liquidity minima cover immediate, 24-hour, and seven-day exit. Profiles expand into visible constraints.
 
-Candidates and constraints have stable ordering; solver version, tolerances, and seed are fixed. Results are quantized and revalidated with decimal arithmetic. Any violation returns no allocation.
+Candidates and constraints have stable ordering; solver version, tolerances, and seed are fixed. Results are quantized and revalidated with decimal arithmetic. Any violation returns no allocation. Transaction-cost models carry an explicit availability status. Standard mode excludes candidates with unknown user-specific entry, exit, gas, or slippage costs. Explicit advanced research may rank a before-cost scenario, but numeric zero is only an internal neutral solver boundary: the public and persisted after-cost net metrics remain null, before-cost metrics are named as such, and the missing quote evidence is disclosed.
 
 Infeasibility analysis combines direct exclusion causes, solver conflict/IIS support, and bounded slack minimization. It reports binding constraints and smallest feasible changes but never applies them without a new user-confirmed run. Narratives use deterministic templates whose sentences reference displayed facts.
 

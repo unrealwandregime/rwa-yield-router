@@ -6,6 +6,7 @@ export const LOCAL_CSRF_COOKIE_NAME = "rwa-csrf";
 export const CSRF_COOKIE_MAX_AGE_SECONDS = 3_600;
 
 const SAFE_METHODS = new Set(["GET", "HEAD"]);
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
 
 export function createCsrfToken(): string {
   return randomBytes(32).toString("base64url");
@@ -21,9 +22,10 @@ export function applyCsrfCookie(
 
   const isHttps = request.nextUrl.protocol === "https:";
   const isProduction = nodeEnvironment === "production";
-  if (isProduction && !isHttps) return response;
+  const isLoopback = LOOPBACK_HOSTS.has(request.nextUrl.hostname);
+  if (isProduction && !isHttps && !isLoopback) return response;
 
-  const cookieName = isProduction ? PRODUCTION_CSRF_COOKIE_NAME : LOCAL_CSRF_COOKIE_NAME;
+  const cookieName = isProduction && isHttps ? PRODUCTION_CSRF_COOKIE_NAME : LOCAL_CSRF_COOKIE_NAME;
 
   response.cookies.set({
     expires: new Date(now.getTime() + CSRF_COOKIE_MAX_AGE_SECONDS * 1_000),

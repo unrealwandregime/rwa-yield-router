@@ -3,6 +3,17 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
+      "env": [
+        "APP_URL",
+        "DEPLOYMENT_TIER",
+        "EMAIL_TRANSPORT",
+        "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+        "NEXT_PUBLIC_SUPABASE_URL",
+        "NODE_ENV",
+        "OBSERVABILITY_MODE",
+        "REQUEST_TIME_PROVIDER_FETCH_ENABLED",
+        "TRUSTED_PROXY_MODE"
+      ],
       "outputs": ["dist/**", ".next/**", "!.next/cache/**"]
     },
     "dev": {

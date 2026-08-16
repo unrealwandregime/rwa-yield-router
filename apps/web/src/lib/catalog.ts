@@ -131,14 +131,48 @@ export const getCatalogSources = (): CatalogRecord["source"][] => {
   return [...unique.values()].sort((a, b) => a.name.localeCompare(b.name));
 };
 
-export const catalogStats = () => {
-  const records = getCatalog();
+export interface CatalogCategoryCoverage {
+  readonly researched: number;
+  readonly admitted: number;
+  readonly gated: number;
+}
+
+const emptyCategoryCoverage = (): Record<Category, CatalogCategoryCoverage> => ({
+  CASH_EQUIVALENT: { admitted: 0, gated: 0, researched: 0 },
+  DEFI_LENDING: { admitted: 0, gated: 0, researched: 0 },
+  GOLD_BACKED_TOKEN: { admitted: 0, gated: 0, researched: 0 },
+  MONEY_MARKET_TOKEN: { admitted: 0, gated: 0, researched: 0 },
+  STABLECOIN_VAULT: { admitted: 0, gated: 0, researched: 0 },
+  TOKENIZED_TBILL: { admitted: 0, gated: 0, researched: 0 }
+});
+
+export const catalogStats = (input: readonly CatalogRecord[] = getCatalog()) => {
+  const records = input.filter((record) => record.publicationStatus !== "ARCHIVED");
+  const categoryCoverage = emptyCategoryCoverage();
+  for (const record of records) {
+    const current = categoryCoverage[record.category];
+    categoryCoverage[record.category] = {
+      admitted: current.admitted + (record.publicationStatus === "PUBLISHED" ? 1 : 0),
+      gated: current.gated + (record.publicationStatus === "GATED" ? 1 : 0),
+      researched: current.researched + 1
+    };
+  }
+  const admitted = records.filter((record) => record.publicationStatus === "PUBLISHED").length;
+  const gated = records.filter((record) => record.publicationStatus === "GATED").length;
   return {
-    gated: allRecords.filter((record) => record.publicationStatus === "GATED").length,
+    admitted,
+    admittedCategories: CATEGORY_VALUES.filter(
+      (category) => categoryCoverage[category].admitted > 0
+    ).length,
+    categoryCoverage,
+    gated,
     products: new Set(records.map((record) => `${record.issuer}:${record.productName}`)).size,
-    published: getAdmittedCatalog().length,
+    published: admitted,
     researched: records.length,
+    researchedCategories: CATEGORY_VALUES.filter(
+      (category) => categoryCoverage[category].researched > 0
+    ).length,
     routes: records.length,
-    sources: getCatalogSources().length
+    sources: new Set(records.map((record) => record.source.url)).size
   };
 };

@@ -4,10 +4,12 @@ import { ComparisonPicker } from "@/components/comparison-picker";
 import { ConfidenceBadge } from "@/components/confidence-badge";
 import { LegalStrip } from "@/components/legal-strip";
 import { PageHeader } from "@/components/page-header";
+import { SavedComparisonsManager } from "@/components/saved-comparisons-manager";
 import { CATEGORY_META } from "@/lib/constants";
 import { type CatalogRecord } from "@/lib/catalog";
 import { formatPercent, formatRisk, formatTimestamp, formatUsd } from "@/lib/format";
 import { getLiveCatalog } from "@/lib/live-morpho";
+import { getAuthenticatedUser } from "@/lib/supabase/server";
 
 export const metadata = { title: "Compare routes" };
 
@@ -28,8 +30,12 @@ const comparisonNarrative = (records: CatalogRecord[]): string => {
 };
 
 export default async function ComparePage({ searchParams }: PageProps) {
-  const catalog = await getLiveCatalog();
-  const slugs = ((await searchParams).routes ?? "").split(",").filter(Boolean).slice(0, 5);
+  const [catalog, user, params] = await Promise.all([
+    getLiveCatalog(),
+    getAuthenticatedUser(),
+    searchParams
+  ]);
+  const slugs = [...new Set((params.routes ?? "").split(",").filter(Boolean))].slice(0, 5);
   const records = slugs
     .map((slug) => catalog.find((record) => record.slug === slug))
     .filter((record): record is CatalogRecord => record !== undefined);
@@ -206,6 +212,12 @@ export default async function ComparePage({ searchParams }: PageProps) {
           </div>
         </>
       )}
+      <section className="section">
+        <SavedComparisonsManager
+          currentRouteSlugs={records.map((record) => record.slug)}
+          enabled={user !== null}
+        />
+      </section>
     </>
   );
 }

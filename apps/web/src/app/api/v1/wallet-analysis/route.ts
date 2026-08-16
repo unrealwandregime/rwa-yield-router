@@ -1,7 +1,15 @@
 import { randomUUID } from "node:crypto";
+import { getServerConfig } from "@rwa-yield-router/config";
 import type { NextRequest } from "next/server";
 import { z } from "zod";
-import { apiError, checkRateLimit, requestIdentity, validateBrowserMutation } from "@/lib/api";
+import {
+  apiError,
+  checkRateLimit,
+  DEFAULT_JSON_BODY_LIMIT_BYTES,
+  readBoundedJson,
+  requestIdentity,
+  validateBrowserMutation
+} from "@/lib/api";
 import { getLiveCatalog } from "@/lib/live-morpho";
 import {
   analyzeWallet,
@@ -17,7 +25,7 @@ const requestSchema = z
   .strict();
 
 const rpcUrlFor = (chain: (typeof WALLET_CHAIN_VALUES)[number]): string | undefined =>
-  chain === "ethereum" ? process.env.RPC_URL_ETHEREUM : process.env.RPC_URL_BASE;
+  getServerConfig().rpcUrls[chain];
 
 export async function POST(request: NextRequest) {
   const correlationId = randomUUID();
@@ -38,7 +46,7 @@ export async function POST(request: NextRequest) {
 
   let body: unknown;
   try {
-    body = await request.json();
+    body = await readBoundedJson(request, DEFAULT_JSON_BODY_LIMIT_BYTES);
   } catch {
     return apiError(400, "VALIDATION_ERROR", "Request body must be valid JSON.", correlationId);
   }

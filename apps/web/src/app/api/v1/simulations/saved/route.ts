@@ -2,7 +2,7 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 import { routeSimulations } from "@rwa-yield-router/database";
 import type { NextRequest } from "next/server";
 import { z } from "zod";
-import { apiError } from "@/lib/api";
+import { apiError, DEFAULT_JSON_BODY_LIMIT_BYTES, readBoundedJson } from "@/lib/api";
 import { authorizeMutation, authorizePrivateRequest } from "@/lib/authz";
 
 const updateSchema = z.object({ id: z.uuid(), name: z.string().trim().min(1).max(120) }).strict();
@@ -41,7 +41,7 @@ export async function PATCH(request: NextRequest) {
   if (!access.ok) return access.response;
   let body: unknown;
   try {
-    body = await request.json();
+    body = await readBoundedJson(request, DEFAULT_JSON_BODY_LIMIT_BYTES);
   } catch {
     return apiError(400, "VALIDATION_ERROR", "Request body must be valid JSON.");
   }

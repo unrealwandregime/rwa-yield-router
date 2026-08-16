@@ -25,6 +25,23 @@ test("screener filters keep unavailable values explicit", async ({ page }) => {
   await expect(page.getByText("Unavailable").first()).toBeVisible();
 });
 
+test("mobile navigation exposes every primary destination without horizontal overflow", async ({
+  page
+}) => {
+  await page.setViewportSize({ height: 844, width: 390 });
+  await page.goto("/");
+  await page.getByLabel("Open navigation").click();
+  const navigation = page.getByRole("navigation", { name: "Mobile navigation" });
+  await expect(navigation.getByRole("link", { name: "Screener" })).toBeVisible();
+  await expect(navigation.getByRole("link", { name: "Sign in" })).toBeVisible();
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth
+  );
+  expect(overflow).toBeLessThanOrEqual(0);
+  await navigation.getByRole("link", { name: "Screener" }).click();
+  await expect(page).toHaveURL(/\/screener$/u);
+});
+
 test("comparison requires two sourced routes", async ({ page }) => {
   await page.goto("/compare");
   await expect(page.getByRole("heading", { name: "Build a comparison" })).toBeVisible();

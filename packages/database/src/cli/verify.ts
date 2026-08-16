@@ -1,9 +1,9 @@
 import { closeDatabase, createDatabase } from "../client.js";
-import { readMigrationDatabaseUrl } from "../environment.js";
+import { readDatabaseUrl } from "../environment.js";
 import { verifyDatabase } from "../verify.js";
 
 const database = createDatabase({
-  connectionString: readMigrationDatabaseUrl(),
+  connectionString: readDatabaseUrl(),
   maxConnections: 1
 });
 

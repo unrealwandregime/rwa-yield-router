@@ -1,3 +1,4 @@
+import { loadClientConfig } from "@rwa-yield-router/config";
 import {
   createServerClient,
   type CookieMethodsServer,
@@ -42,19 +43,18 @@ export function readSupabaseProxyConfiguration(
   if (url === undefined || url === "" || anonKey === undefined || anonKey === "") return null;
 
   try {
-    const parsedUrl = new URL(url);
-    if (
-      parsedUrl.protocol !== "https:" ||
-      parsedUrl.username !== "" ||
-      parsedUrl.password !== "" ||
-      parsedUrl.hostname.includes("*")
-    )
-      return null;
+    const config = loadClientConfig({
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: anonKey,
+      NEXT_PUBLIC_SUPABASE_URL: url
+    });
+    return {
+      anonKey: config.supabaseAnonKey,
+      secureCookies: environment.NODE_ENV === "production",
+      url: config.supabaseUrl
+    };
   } catch {
     return null;
   }
-
-  return { anonKey, secureCookies: environment.NODE_ENV === "production", url };
 }
 
 export async function refreshSupabaseSession(

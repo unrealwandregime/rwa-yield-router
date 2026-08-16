@@ -1,4 +1,6 @@
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
+import { isIP } from "node:net";
+import { getServerConfig } from "@rwa-yield-router/config";
 import Redis from "ioredis";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -18,6 +20,65 @@ export type ApiErrorCode =
   | "RATE_LIMITED"
   | "RECENT_AUTH_REQUIRED"
   | "VALIDATION_ERROR";
+
+export type JsonBodyErrorCode =
+  "INVALID_JSON" | "MISSING_BODY" | "REQUEST_TOO_LARGE" | "UNSUPPORTED_CONTENT_TYPE";
+
+export const DEFAULT_JSON_BODY_LIMIT_BYTES = 64 * 1024;
+
+export class JsonBodyError extends Error {
+  readonly code: JsonBodyErrorCode;
+  readonly status: 400 | 413 | 415;
+
+  constructor(code: JsonBodyErrorCode, status: 400 | 413 | 415) {
+    super(code);
+    this.name = "JsonBodyError";
+    this.code = code;
+    this.status = status;
+  }
+}
+
+export async function readBoundedJson(
+  request: Readonly<Pick<Request, "body" | "headers">>,
+  maxBytes: number
+): Promise<unknown> {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0)
+    throw new RangeError("JSON request limit must be a positive safe integer");
+  if (request.headers.get("content-type")?.split(";", 1)[0]?.trim() !== "application/json")
+    throw new JsonBodyError("UNSUPPORTED_CONTENT_TYPE", 415);
+  const declaredLength = request.headers.get("content-length");
+  if (declaredLength !== null) {
+    const parsedLength = Number(declaredLength);
+    if (!Number.isSafeInteger(parsedLength) || parsedLength < 0)
+      throw new JsonBodyError("INVALID_JSON", 400);
+    if (parsedLength > maxBytes) throw new JsonBodyError("REQUEST_TOO_LARGE", 413);
+  }
+  if (request.body === null) throw new JsonBodyError("MISSING_BODY", 400);
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const result = await reader.read();
+    if (result.done) break;
+    total += result.value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel();
+      throw new JsonBodyError("REQUEST_TOO_LARGE", 413);
+    }
+    chunks.push(result.value);
+  }
+  const body = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(body)) as unknown;
+  } catch {
+    throw new JsonBodyError("INVALID_JSON", 400);
+  }
+}
 
 export const apiError = (
   status: number,
@@ -60,6 +121,8 @@ export const jsonWithEtag = (body: unknown, init?: { cacheSeconds?: number; stat
 type RateEntry = { count: number; resetAt: number };
 const rateEntries = new Map<string, RateEntry>();
 let redisRateClient: Promise<Redis> | undefined;
+let rateLimitStoreHealthCache: Readonly<{ expiresAt: number; healthy: boolean }> | undefined;
+let rateLimitStoreHealthInFlight: Promise<boolean> | undefined;
 
 const RATE_LIMIT_SCRIPT = `
 local count = redis.call("INCR", KEYS[1])
@@ -69,12 +132,12 @@ return {count, ttl}
 `;
 
 const getRedisRateClient = async (): Promise<Redis> => {
-  const redisUrl = process.env.REDIS_URL;
+  const { nodeEnv, redisUrl } = getServerConfig();
   if (!redisUrl) throw new Error("REDIS_URL is not configured");
   const parsed = new URL(redisUrl);
   if (
     (parsed.protocol !== "redis:" && parsed.protocol !== "rediss:") ||
-    (process.env.NODE_ENV === "production" && parsed.protocol !== "rediss:")
+    (nodeEnv === "production" && parsed.protocol !== "rediss:")
   )
     throw new Error("REDIS_URL protocol is not permitted");
   redisRateClient ??= (async () => {
@@ -96,12 +159,24 @@ const getRedisRateClient = async (): Promise<Redis> => {
 };
 
 export const checkRateLimitStoreHealth = async (): Promise<boolean> => {
-  if (!process.env.REDIS_URL) return process.env.NODE_ENV !== "production";
-  try {
-    return (await (await getRedisRateClient()).ping()) === "PONG";
-  } catch {
-    return false;
-  }
+  const config = getServerConfig();
+  if (!config.redisUrl)
+    return config.nodeEnv !== "production" || config.deploymentTier === "preview";
+  const now = Date.now();
+  if (rateLimitStoreHealthCache && rateLimitStoreHealthCache.expiresAt > now)
+    return rateLimitStoreHealthCache.healthy;
+  rateLimitStoreHealthInFlight ??= (async () => {
+    try {
+      return (await (await getRedisRateClient()).ping()) === "PONG";
+    } catch {
+      return false;
+    }
+  })().finally(() => {
+    rateLimitStoreHealthInFlight = undefined;
+  });
+  const healthy = await rateLimitStoreHealthInFlight;
+  rateLimitStoreHealthCache = { expiresAt: now + (healthy ? 10_000 : 5_000), healthy };
+  return healthy;
 };
 
 const checkInMemoryRateLimit = (key: string, limit: number, windowMs: number) => {
@@ -132,8 +207,9 @@ export const checkRateLimit = async (key: string, limit: number, windowMs: numbe
     windowMs <= 0
   )
     throw new RangeError("Rate-limit bounds must be positive integers");
+  const config = getServerConfig();
   const now = Date.now();
-  if (process.env.REDIS_URL) {
+  if (config.redisUrl) {
     try {
       const client = await getRedisRateClient();
       const redisKey = `rwa:rate:${createHash("sha256").update(key).digest("base64url")}`;
@@ -151,26 +227,24 @@ export const checkRateLimit = async (key: string, limit: number, windowMs: numbe
         resetAt: now + Math.max(0, result[1])
       };
     } catch {
-      if (process.env.NODE_ENV === "production")
+      if (config.nodeEnv === "production" && config.deploymentTier === "production")
         return { allowed: false, remaining: 0, resetAt: now + windowMs };
     }
   }
-  if (process.env.NODE_ENV === "production")
+  if (config.nodeEnv === "production" && config.deploymentTier === "production")
     return { allowed: false, remaining: 0, resetAt: now + windowMs };
   return checkInMemoryRateLimit(key, limit, windowMs);
 };
 
 export const requestIdentity = (headers: Headers): string => {
-  const forwarded = headers
-    .get("x-forwarded-for")
-    ?.split(",")
-    .map((value) => value.trim())
-    .filter(Boolean);
+  const config = getServerConfig();
+  const forwardedAddress = headers.get("x-forwarded-for")?.split(",", 1)[0]?.trim();
   const address =
-    headers.get("cf-connecting-ip")?.trim() ||
-    headers.get("x-real-ip")?.trim() ||
-    forwarded?.at(-1) ||
-    "unknown";
+    config.trustedProxyMode === "render" &&
+    forwardedAddress !== undefined &&
+    isIP(forwardedAddress) !== 0
+      ? forwardedAddress
+      : "unknown";
   return createHash("sha256").update(address).digest("base64url");
 };
 
@@ -229,5 +303,18 @@ export const validateCsrfToken = (requestUrl: string, headers: Headers): boolean
   return timingSafeEqual(Buffer.from(cookieToken), Buffer.from(headerToken));
 };
 
-export const validateBrowserMutation = (requestUrl: string, headers: Headers): boolean =>
-  validateOrigin(requestUrl, headers) && validateCsrfToken(requestUrl, headers);
+export const resolveApplicationUrl = (requestUrl: string): string => {
+  const config = getServerConfig();
+  try {
+    const parsedRequestUrl = new URL(requestUrl);
+    if (LOOPBACK_HOSTS.has(parsedRequestUrl.hostname)) return requestUrl;
+  } catch {
+    return requestUrl;
+  }
+  return config.nodeEnv === "production" ? config.appUrl : requestUrl;
+};
+
+export const validateBrowserMutation = (requestUrl: string, headers: Headers): boolean => {
+  const validationUrl = resolveApplicationUrl(requestUrl);
+  return validateOrigin(validationUrl, headers) && validateCsrfToken(validationUrl, headers);
+};

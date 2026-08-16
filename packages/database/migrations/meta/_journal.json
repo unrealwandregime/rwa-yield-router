@@ -43,6 +43,41 @@
       "when": 1784009451435,
       "tag": "0005_production_catalog_import",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784368741170,
+      "tag": "0006_equal_shen",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1784712003186,
+      "tag": "0007_big_drax",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1784712050944,
+      "tag": "0008_naive_bloodstrike",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1784714062028,
+      "tag": "0009_catalog_import_append_only",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1784714463173,
+      "tag": "0010_rollup_snapshot_consistency",
+      "breakpoints": true
     }
   ]
 }

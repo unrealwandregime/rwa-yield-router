@@ -1,0 +1,102 @@
+name: Zero-budget preview database release gate
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: zero-budget-preview-database-release
+  cancel-in-progress: false
+
+jobs:
+  dispatch_guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require the repository default branch
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_TYPE" = "branch"
+          test "$GITHUB_REF_NAME" = "$DEFAULT_BRANCH"
+
+  migrate-import-verify:
+    needs: dispatch_guard
+    environment: preview
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NODE_ENV: production
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Verify the dispatched commit is still the default-branch tip
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          DISPATCH_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$DISPATCH_SHA"
+          git fetch --no-tags origin "refs/heads/${DEFAULT_BRANCH}"
+          test "$(git rev-parse FETCH_HEAD)" = "$DISPATCH_SHA"
+      - name: Require successful CI for the dispatched commit
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          DISPATCH_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          successful_runs="$(gh api --method GET \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs" \
+            -f branch="$DEFAULT_BRANCH" \
+            -f event=push \
+            -f head_sha="$DISPATCH_SHA" \
+            -f per_page=100 \
+            -f status=success \
+            --jq '.total_count')"
+          test "$successful_runs" -gt 0
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: 11.14.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          cache: pnpm
+          node-version: 24.17.0
+      - run: pnpm install --frozen-lockfile
+      - name: Require the protected preview database secret
+        env:
+          DATABASE_MIGRATION_URL: ${{ secrets.PREVIEW_DATABASE_MIGRATION_URL }}
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$DATABASE_URL" || {
+            echo "PREVIEW_DATABASE_URL is not configured." >&2
+            exit 1
+          }
+          test -n "$DATABASE_MIGRATION_URL" || {
+            echo "PREVIEW_DATABASE_MIGRATION_URL is not configured." >&2
+            exit 1
+          }
+      - run: pnpm data:validate
+      - env:
+          DATABASE_MIGRATION_URL: ${{ secrets.PREVIEW_DATABASE_MIGRATION_URL }}
+        run: pnpm db:migrate
+      - env:
+          DATABASE_MIGRATION_URL: ${{ secrets.PREVIEW_DATABASE_MIGRATION_URL }}
+        run: pnpm db:seed
+      - env:
+          DATABASE_MIGRATION_URL: ${{ secrets.PREVIEW_DATABASE_MIGRATION_URL }}
+        run: pnpm db:catalog-import
+      - env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+        run: pnpm db:verify

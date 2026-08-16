@@ -119,13 +119,14 @@ export async function createWorkerRuntime(options: WorkerRuntimeOptions): Promis
         jobName: parsed.name
       });
       const runId = await options.jobRunStore.start({
-        adapterVersion: parsed.name === "INGEST_SOURCE" ? JOB_VERSION : null,
         attempt,
         correlationId: parsed.correlationId,
         jobId,
         jobName: parsed.name,
+        jobVersion: JOB_VERSION,
         maxAttempts,
-        queuedAt: new Date(bullJob.timestamp)
+        queuedAt: new Date(bullJob.timestamp),
+        sourceReference: parsed.name === "INGEST_SOURCE" ? parsed.sourceId : null
       });
       try {
         const result = await dispatchJob(options.handlers, parsed, {
@@ -155,6 +156,7 @@ export async function createWorkerRuntime(options: WorkerRuntimeOptions): Promis
         await options.jobRunStore.fail(runId, {
           attempt,
           code: jobError.code,
+          deadLettered: !jobError.retryable || attempt >= maxAttempts,
           durationMs,
           retryable: jobError.retryable
         });
@@ -190,7 +192,8 @@ export async function createWorkerRuntime(options: WorkerRuntimeOptions): Promis
       return;
     }
     const attempts = typeof job.opts.attempts === "number" ? job.opts.attempts : 1;
-    if (job.attemptsMade < attempts) {
+    const nonRetryable = error instanceof WorkerJobError && !error.retryable;
+    if (!nonRetryable && job.attemptsMade < attempts) {
       return;
     }
     const parsed = workerJobSchema.safeParse(job.data);

@@ -14,22 +14,29 @@ const simulationResultSchema = z.discriminatedUnion("status", [
         percentage: z.string(),
         productName: z.string(),
         rationale: z.string(),
-        riskAdjustedApy: z.string(),
+        comparativeRiskAdjustedApy: z.string().nullable(),
+        comparativeRiskAdjustedApyBeforeTransactionCosts: z.string(),
+        netApy: z.string().nullable(),
+        netApyBeforeTransactionCosts: z.string(),
         riskScore: z.string(),
         routeName: z.string(),
-        routeSlug: z.string()
+        routeSlug: z.string(),
+        transactionCostStatus: z.enum(["AVAILABLE", "UNAVAILABLE"])
       })
     ),
     assumptions: z.array(z.string()),
     dataTimestamp: z.string(),
+    comparativeRiskAdjustedApy: z.string().nullable(),
+    comparativeRiskAdjustedApyBeforeTransactionCosts: z.string(),
     grossBlendedApy: z.string(),
     immediateLiquidity: z.string(),
     methodologyVersion: z.string(),
-    netBlendedApy: z.string(),
-    riskAdjustedApy: z.string(),
+    netBlendedApy: z.string().nullable(),
+    netBlendedApyBeforeTransactionCosts: z.string(),
     savedSimulationId: z.string().uuid().nullable(),
     sevenDayLiquidity: z.string(),
     status: z.literal("FEASIBLE"),
+    transactionCostStatus: z.enum(["AVAILABLE", "UNAVAILABLE"]),
     twentyFourHourLiquidity: z.string(),
     weightedRiskScore: z.string()
   }),
@@ -336,7 +343,8 @@ export function SimulatorForm() {
           </label>
           <label>
             <input name="advancedResearchMode" type="checkbox" /> Advanced research: allow
-            conditional eligibility and explicit zero-cost assumptions
+            conditional eligibility and a clearly qualified before-cost scenario when transaction
+            quotes are unavailable
           </label>
         </div>
         <LegalStrip compact />
@@ -412,7 +420,7 @@ export function SimulatorForm() {
           <LegalStrip compact />
           {result.assumptions.length > 0 ? (
             <div className="notice notice-warning">
-              <strong>Advanced research assumptions</strong>
+              <strong>Research assumptions and data limits</strong>
               <ul>
                 {result.assumptions.map((assumption) => (
                   <li key={assumption}>{assumption}</li>
@@ -426,12 +434,20 @@ export function SimulatorForm() {
               <strong className="metric-value">{formatPercent(result.grossBlendedApy)}</strong>
             </div>
             <div className="metric">
-              <span className="metric-label">Net blended APY</span>
+              <span className="metric-label">Net blended APY after user costs</span>
               <strong className="metric-value">{formatPercent(result.netBlendedApy)}</strong>
             </div>
             <div className="metric">
-              <span className="metric-label">Comparative risk-adjusted APY</span>
-              <strong className="metric-value">{formatPercent(result.riskAdjustedApy)}</strong>
+              <span className="metric-label">Provider net APY before user costs</span>
+              <strong className="metric-value">
+                {formatPercent(result.netBlendedApyBeforeTransactionCosts)}
+              </strong>
+            </div>
+            <div className="metric">
+              <span className="metric-label">Comparative risk-adjusted APY before user costs</span>
+              <strong className="metric-value">
+                {formatPercent(result.comparativeRiskAdjustedApyBeforeTransactionCosts)}
+              </strong>
             </div>
             <div className="metric">
               <span className="metric-label">Weighted risk</span>
@@ -447,7 +463,7 @@ export function SimulatorForm() {
                     Allocation
                   </th>
                   <th className="numeric" scope="col">
-                    Risk-adjusted APY
+                    Comparative risk-adjusted APY before user costs
                   </th>
                   <th scope="col">Risk</th>
                   <th scope="col">Rationale</th>
@@ -462,7 +478,9 @@ export function SimulatorForm() {
                       <span className="faint">{allocation.routeName}</span>
                     </td>
                     <td className="numeric">{allocation.percentage}%</td>
-                    <td className="numeric">{formatPercent(allocation.riskAdjustedApy)}</td>
+                    <td className="numeric">
+                      {formatPercent(allocation.comparativeRiskAdjustedApyBeforeTransactionCosts)}
+                    </td>
                     <td>{formatRisk(allocation.riskScore)}</td>
                     <td>{allocation.rationale}</td>
                   </tr>

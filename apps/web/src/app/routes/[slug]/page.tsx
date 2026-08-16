@@ -48,6 +48,21 @@ export default async function RouteDetailPage({ params }: PageProps) {
   const record = await getLiveCatalogRecord((await params).slug);
   if (!record) notFound();
   const yieldHistory = await getYieldHistory(record.slug);
+  const metricEvidence = [
+    { label: "Yield", state: record.metricStatus.yield },
+    { label: "AUM / TVL", state: record.metricStatus.aumTvl },
+    { label: "Liquidity", state: record.metricStatus.liquidity },
+    { label: "Risk", state: record.metricStatus.risk }
+  ] as const;
+  const displayableMetricStatuses = new Set(["CURRENT", "STALE", "ESTIMATED", "DEGRADED"]);
+  const materialMetricCoverage = metricEvidence.filter(({ state }) =>
+    displayableMetricStatuses.has(state.status)
+  ).length;
+  const isMorphoProviderRate =
+    record.source.url === "https://api.morpho.org/graphql" ||
+    record.source.name.toLocaleLowerCase("en-US").includes("morpho");
+  const usesRequestTimeOnlyEvidence =
+    isMorphoProviderRate && record.observedAt !== null && record.sourceObservationIds.length === 0;
 
   return (
     <>
@@ -87,6 +102,16 @@ export default async function RouteDetailPage({ params }: PageProps) {
           gates required for simulation. {record.warnings.join(" ")}
         </div>
       ) : null}
+      {record.publicationStatus === "PUBLISHED" && record.warnings.length > 0 ? (
+        <div className="notice notice-warning" role="status">
+          <strong>Evidence limitations apply to this admitted route.</strong>
+          <ul style={{ marginBottom: 0, marginTop: 10, paddingLeft: 20 }}>
+            {[...new Set(record.warnings)].map((warning) => (
+              <li key={warning}>{warning}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       <div className="metric-grid">
         <Metric
           detail="Current sourced route rate"
@@ -94,17 +119,29 @@ export default async function RouteDetailPage({ params }: PageProps) {
           value={formatPercent(record.grossApy)}
         />
         <Metric
-          detail="After known fees and selected-horizon costs"
+          detail={
+            isMorphoProviderRate
+              ? "Provider-reported after vault fees; before user-specific transaction costs"
+              : "Before user-specific entry, exit, gas, and slippage costs"
+          }
           label="Net APY"
           value={formatPercent(record.netApy)}
         />
         <Metric
-          detail="Comparative methodology, not a return forecast"
-          label="Risk-adjusted APY"
+          detail={
+            record.metricStatus.risk.status === "ESTIMATED"
+              ? "Estimated comparative proxy; not a return forecast"
+              : "Comparative methodology, not a return forecast"
+          }
+          label="Comparative risk-adjusted APY"
           value={formatPercent(record.riskAdjustedApy)}
         />
         <Metric
-          detail="Higher means higher comparative risk"
+          detail={
+            record.metricStatus.risk.status === "ESTIMATED"
+              ? "Estimated with unavailable factor evidence; see warnings"
+              : "Higher means higher comparative risk"
+          }
           label="Risk score"
           value={formatRisk(record.riskScore)}
         />
@@ -171,7 +208,7 @@ export default async function RouteDetailPage({ params }: PageProps) {
               <dd>Unavailable</dd>
             </div>
             <div>
-              <dt>Observed at</dt>
+              <dt>{usesRequestTimeOnlyEvidence ? "Provider retrieved at" : "Observed at"}</dt>
               <dd>{formatTimestamp(record.observedAt)}</dd>
             </div>
           </dl>
@@ -195,7 +232,8 @@ export default async function RouteDetailPage({ params }: PageProps) {
             <span className="eyebrow">Comparative framework</span>
             <h2>Risk factors</h2>
             <p>
-              Unavailable factors remain unavailable and create a conservative data-quality penalty.
+              Unavailable factors remain unavailable. A proxy used for comparative ranking is
+              labelled estimated and is never presented as observed factor evidence.
             </p>
           </div>
           <Link className="button button-secondary" href="/methodology">
@@ -206,8 +244,15 @@ export default async function RouteDetailPage({ params }: PageProps) {
           {riskFactors.map((factor) => (
             <div className="card" key={factor}>
               <span className="label">{factor}</span>
-              <h3 style={{ marginTop: 13 }}>Awaiting calculation</h3>
-              <p>Requires a current, cited input under the published methodology.</p>
+              <h3 style={{ marginTop: 13 }}>
+                {record.metricStatus.risk.status === "ESTIMATED"
+                  ? "Factor evidence not published"
+                  : "Unavailable"}
+              </h3>
+              <p>
+                This public record contains no cited factor-level result. Missing evidence is not
+                treated as a zero-risk observation.
+              </p>
             </div>
           ))}
         </div>
@@ -299,7 +344,9 @@ export default async function RouteDetailPage({ params }: PageProps) {
             </p>
           </div>
           <div>
-            <span className="label">Live observation</span>
+            <span className="label">
+              {usesRequestTimeOnlyEvidence ? "Provider retrieved at" : "Live observation"}
+            </span>
             <p>{formatTimestamp(record.observedAt)}</p>
           </div>
           <div>
@@ -314,6 +361,56 @@ export default async function RouteDetailPage({ params }: PageProps) {
                 Open source <ExternalLink aria-hidden size={13} />
               </a>
             </p>
+          </div>
+          <div>
+            <span className="label">Material metric coverage</span>
+            <p>
+              {materialMetricCoverage} of {metricEvidence.length} metrics have a displayable value
+            </p>
+          </div>
+          <div>
+            <span className="label">Persisted observations</span>
+            <p>
+              {record.sourceObservationIds.length > 0
+                ? `${record.sourceObservationIds.length} referenced`
+                : usesRequestTimeOnlyEvidence
+                  ? "None; request-time values are not optimizer evidence"
+                  : "None; persisted metric evidence is unavailable"}
+            </p>
+          </div>
+        </div>
+        <div className="grid grid-2" style={{ marginTop: 24 }}>
+          <div>
+            <h3>Metric evidence states</h3>
+            <dl className="detail-list">
+              {metricEvidence.map(({ label, state }) => (
+                <div key={label}>
+                  <dt>{label}</dt>
+                  <dd>
+                    {state.status.replaceAll("_", " ")} · {state.confidence.replaceAll("_", " ")}
+                    {state.observedAt === null ? "" : ` · ${formatTimestamp(state.observedAt)}`}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+          <div>
+            <h3>Persisted observation references</h3>
+            {record.sourceObservationIds.length > 0 ? (
+              <ul style={{ overflowWrap: "anywhere", paddingLeft: 20 }}>
+                {record.sourceObservationIds.map((observationId) => (
+                  <li key={observationId}>
+                    <code>{observationId}</code>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>
+                {usesRequestTimeOnlyEvidence
+                  ? "No database observation IDs support the request-time fallback. Those values may be displayed with their provider timestamp, but they are not admitted to the optimizer."
+                  : "No persisted observation IDs are available. Material values remain unavailable for optimization until matching observations are ingested."}
+              </p>
+            )}
           </div>
         </div>
       </section>

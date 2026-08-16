@@ -3,6 +3,7 @@ import { and, desc, eq, isNull, sql } from "drizzle-orm";
 
 import {
   productionCatalog,
+  productionCatalogRecordSchema,
   validateProductionCatalog,
   type ProductionCatalogRecord,
   type SourceType
@@ -25,7 +26,7 @@ import {
 } from "./schema/index.js";
 import { seedCanonicalReferenceData } from "./seed.js";
 
-const IMPORTER_VERSION = "production-catalog-import-v1.0.0";
+const IMPORTER_VERSION = "production-catalog-import-v1.1.0";
 const IMPORT_LOCK_KEY = "rwa-yield-router:production-catalog-import";
 
 type DatabaseSourceType = (typeof sourceRegistry.$inferInsert)["sourceType"];
@@ -96,19 +97,19 @@ export const caip2IdForCatalogChain = (chainLabel: string): string | null =>
 export const buildProductionCatalogImportPlan = (
   records: ReadonlyArray<ProductionCatalogRecord> = productionCatalog
 ): ProductionCatalogImportPlan => {
-  const report = validateProductionCatalog(records);
+  const canonicalRecords = canonicalCatalogPayload(
+    records.map((record) => productionCatalogRecordSchema.parse(record))
+  );
+  const report = validateProductionCatalog(canonicalRecords);
   if (report.gated + report.published !== report.total) {
     throw new Error("Production import accepts only gated or published catalog records");
   }
-  const verifiedAtValues = new Set(records.map((record) => record.verifiedAt));
-  if (verifiedAtValues.size !== 1) {
-    throw new Error("A catalog import batch must use one verification cutoff");
-  }
-  const verifiedAtValue = records[0]?.verifiedAt;
-  if (verifiedAtValue === undefined) {
+  if (records.length === 0) {
     throw new Error("A production catalog import cannot be empty");
   }
-  const canonicalRecords = canonicalCatalogPayload(records);
+  const verifiedAt = new Date(
+    Math.max(...canonicalRecords.map((record) => new Date(record.verifiedAt).getTime()))
+  );
   return {
     draftCount: 0,
     gatedCount: report.gated,
@@ -116,7 +117,7 @@ export const buildProductionCatalogImportPlan = (
     publishedCount: report.published,
     recordCount: report.total,
     records: canonicalRecords,
-    verifiedAt: new Date(verifiedAtValue)
+    verifiedAt
   };
 };
 
@@ -127,44 +128,69 @@ export const importProductionCatalog = async (
     records?: ReadonlyArray<ProductionCatalogRecord>;
   }> = {}
 ): Promise<ProductionCatalogImportResult> => {
-  await seedCanonicalReferenceData(database);
   const plan = buildProductionCatalogImportPlan(input.records ?? productionCatalog);
+  await seedCanonicalReferenceData(database);
   const correlationId = input.correlationId ?? randomUUID();
 
   return database.transaction(async (transaction) => {
     await transaction.execute(sql`select pg_advisory_xact_lock(hashtext(${IMPORT_LOCK_KEY}))`);
+
+    const [latestBatch] = await transaction
+      .select({ id: catalogImportBatches.id })
+      .from(catalogImportBatches)
+      .where(eq(catalogImportBatches.catalogName, "production-catalog"))
+      .orderBy(desc(catalogImportBatches.importedAt))
+      .limit(1);
+    if (latestBatch !== undefined) {
+      const previousIdentities = await transaction
+        .select({
+          externalRecordId: catalogImportRecords.externalRecordId,
+          productSlug: products.slug,
+          routeSlug: productRoutes.slug
+        })
+        .from(catalogImportRecords)
+        .innerJoin(products, eq(catalogImportRecords.productId, products.id))
+        .innerJoin(productRoutes, eq(catalogImportRecords.routeId, productRoutes.id))
+        .where(eq(catalogImportRecords.batchId, latestBatch.id));
+      const expectedIdentities = new Map(plan.records.map((record) => [record.id, record.slug]));
+      const identitySetMatches =
+        previousIdentities.length === expectedIdentities.size &&
+        previousIdentities.every(
+          (identity) =>
+            expectedIdentities.get(identity.externalRecordId) === identity.productSlug &&
+            identity.productSlug === identity.routeSlug
+        );
+      if (!identitySetMatches) {
+        throw new Error(
+          "Catalog identity set or slug changed; use the explicit retirement and replacement workflow"
+        );
+      }
+    }
 
     const [existingBatch] = await transaction
       .select({ id: catalogImportBatches.id })
       .from(catalogImportBatches)
       .where(eq(catalogImportBatches.payloadSha256, plan.payloadSha256))
       .limit(1);
-    if (existingBatch !== undefined) {
-      return {
-        batchId: existingBatch.id,
-        gatedRecords: plan.gatedCount,
-        outcome: "DUPLICATE",
-        payloadSha256: plan.payloadSha256,
-        publishedRecords: plan.publishedCount,
-        recordsImported: 0
-      };
-    }
-
-    const [batch] = await transaction
-      .insert(catalogImportBatches)
-      .values({
-        catalogName: "production-catalog",
-        catalogSchemaVersion: "1.0.0",
-        correlationId,
-        draftCount: plan.draftCount,
-        gatedCount: plan.gatedCount,
-        importerVersion: IMPORTER_VERSION,
-        payloadSha256: plan.payloadSha256,
-        publishedCount: plan.publishedCount,
-        recordCount: plan.recordCount,
-        verifiedAt: plan.verifiedAt
-      })
-      .returning({ id: catalogImportBatches.id });
+    const batch =
+      existingBatch ??
+      (
+        await transaction
+          .insert(catalogImportBatches)
+          .values({
+            catalogName: "production-catalog",
+            catalogSchemaVersion: "1.0.0",
+            correlationId,
+            draftCount: plan.draftCount,
+            gatedCount: plan.gatedCount,
+            importerVersion: IMPORTER_VERSION,
+            payloadSha256: plan.payloadSha256,
+            publishedCount: plan.publishedCount,
+            recordCount: plan.recordCount,
+            verifiedAt: plan.verifiedAt
+          })
+          .returning({ id: catalogImportBatches.id })
+      )[0];
     if (batch === undefined) throw new Error("Catalog import batch was not created");
 
     const categoryRows = await transaction
@@ -181,17 +207,34 @@ export const importProductionCatalog = async (
     const chainIds = new Map<string, string>();
     const assetIds = new Map<string, string>();
 
+    const sourceVerifiedAt = new Map<string, Date>();
+    for (const record of plan.records) {
+      const recordVerifiedAt = new Date(record.sourceVerifiedAt);
+      const current = sourceVerifiedAt.get(record.source.id);
+      if (current === undefined || recordVerifiedAt > current) {
+        sourceVerifiedAt.set(record.source.id, recordVerifiedAt);
+      }
+    }
+
     const ensureSource = async (record: ProductionCatalogRecord): Promise<string> => {
       const sourceCode = `CATALOG-${record.source.id}`;
+      const reviewedAt = sourceVerifiedAt.get(record.source.id);
+      if (reviewedAt === undefined) {
+        throw new Error(`Source ${sourceCode} has no verification timestamp`);
+      }
       const cached = sourceIds.get(sourceCode);
       if (cached !== undefined) return cached;
       const versions = await transaction
         .select({
+          archivedAt: sourceRegistry.archivedAt,
           canonicalUrl: sourceRegistry.canonicalUrl,
           id: sourceRegistry.id,
           logicalId: sourceRegistry.logicalId,
           name: sourceRegistry.name,
           publicationStatus: sourceRegistry.publicationStatus,
+          publishedAt: sourceRegistry.publishedAt,
+          reviewedAt: sourceRegistry.reviewedAt,
+          sourceType: sourceRegistry.sourceType,
           status: sourceRegistry.status,
           version: sourceRegistry.version
         })
@@ -205,20 +248,29 @@ export const importProductionCatalog = async (
       );
       if (
         currentPublished !== undefined &&
+        currentPublished.archivedAt === null &&
         currentPublished.canonicalUrl === record.source.url &&
-        currentPublished.name === record.source.name
+        currentPublished.name === record.source.name &&
+        currentPublished.sourceType === sourceTypeMap[record.source.type] &&
+        currentPublished.reviewedAt?.getTime() === reviewedAt.getTime()
       ) {
         sourceIds.set(sourceCode, currentPublished.id);
         return currentPublished.id;
       }
+      if (existingBatch !== undefined) {
+        throw new Error(`Catalog source ${sourceCode} drifted after its reviewed import`);
+      }
       if (currentPublished !== undefined) {
+        if (currentPublished.publishedAt !== null && reviewedAt <= currentPublished.publishedAt) {
+          throw new Error(`Source ${sourceCode} has a non-monotonic verification cutoff`);
+        }
         await transaction
           .update(sourceRegistry)
           .set({
-            archivedAt: plan.verifiedAt,
+            archivedAt: reviewedAt,
             publicationStatus: "SUPERSEDED",
             status: "REMOVED",
-            updatedAt: plan.verifiedAt
+            updatedAt: reviewedAt
           })
           .where(
             and(
@@ -237,10 +289,10 @@ export const importProductionCatalog = async (
           ownerName: new URL(record.source.url).hostname,
           priority: 100,
           publicationStatus: "PUBLISHED",
-          publishedAt: plan.verifiedAt,
+          publishedAt: reviewedAt,
           removalProcedure:
             "Archive this source version and publish a reviewed replacement when its canonical evidence changes.",
-          reviewedAt: plan.verifiedAt,
+          reviewedAt,
           sourceType: sourceTypeMap[record.source.type],
           version: (latest?.version ?? 0) + 1
         })
@@ -326,6 +378,8 @@ export const importProductionCatalog = async (
       if (record.publicationStatus === "ARCHIVED") {
         throw new Error(`Archived catalog record ${record.id} cannot enter a live import`);
       }
+      const recordVerifiedAt = new Date(record.verifiedAt);
+      const recordSha256 = hashJson(record);
       const categoryId = categoryIds.get(record.category);
       const yieldSourceId = yieldSourceIds.get(record.yieldSource);
       if (categoryId === undefined || yieldSourceId === undefined) {
@@ -340,133 +394,233 @@ export const importProductionCatalog = async (
       const catalogPublicationStatus = record.publicationStatus;
       const entityPublicationStatus =
         catalogPublicationStatus === "PUBLISHED" ? "PUBLISHED" : "DRAFT";
+      const expectedPublishedAt = entityPublicationStatus === "PUBLISHED" ? recordVerifiedAt : null;
+      const productDescription =
+        "Source-verified catalog identity. Live metrics are admitted separately as timestamped observations.";
 
       const [latestProduct] = await transaction
         .select({
+          archivedAt: products.archivedAt,
+          categoryId: products.categoryId,
+          description: products.description,
           effectiveFrom: products.effectiveFrom,
           effectiveTo: products.effectiveTo,
           id: products.id,
+          issuerId: products.issuerId,
+          lifecycleStatus: products.lifecycleStatus,
           logicalId: products.logicalId,
+          name: products.name,
+          primaryAssetId: products.primaryAssetId,
+          publicationStatus: products.publicationStatus,
+          publishedAt: products.publishedAt,
+          symbol: products.symbol,
+          verifiedAt: products.verifiedAt,
           version: products.version
         })
         .from(products)
         .where(eq(products.slug, record.slug))
         .orderBy(desc(products.version))
         .limit(1);
-      if (latestProduct?.effectiveTo === null) {
-        if (plan.verifiedAt <= latestProduct.effectiveFrom) {
+      const productMatches =
+        latestProduct !== undefined &&
+        latestProduct.archivedAt === null &&
+        latestProduct.effectiveTo === null &&
+        latestProduct.categoryId === categoryId &&
+        latestProduct.description === productDescription &&
+        latestProduct.issuerId === issuerId &&
+        latestProduct.lifecycleStatus === "ACTIVE" &&
+        latestProduct.name === record.productName &&
+        latestProduct.primaryAssetId === primaryAssetId &&
+        latestProduct.publicationStatus === entityPublicationStatus &&
+        latestProduct.publishedAt?.getTime() === expectedPublishedAt?.getTime() &&
+        latestProduct.symbol === record.symbol.toUpperCase() &&
+        latestProduct.verifiedAt?.getTime() === recordVerifiedAt.getTime();
+      let product: Readonly<{ id: string }>;
+      if (productMatches) {
+        product = { id: latestProduct.id };
+      } else {
+        if (existingBatch !== undefined) {
+          throw new Error(`Catalog product ${record.slug} drifted after its reviewed import`);
+        }
+        if (latestProduct !== undefined && recordVerifiedAt <= latestProduct.effectiveFrom) {
           throw new Error(`Catalog product ${record.slug} has a non-monotonic cutoff`);
         }
-        await transaction
-          .update(products)
-          .set({
-            effectiveTo: plan.verifiedAt,
-            publicationStatus: "SUPERSEDED",
-            updatedAt: plan.verifiedAt
+        if (latestProduct?.effectiveTo === null) {
+          await transaction
+            .update(products)
+            .set({
+              effectiveTo: recordVerifiedAt,
+              publicationStatus: "SUPERSEDED",
+              updatedAt: recordVerifiedAt
+            })
+            .where(and(eq(products.id, latestProduct.id), isNull(products.effectiveTo)));
+        }
+        const [createdProduct] = await transaction
+          .insert(products)
+          .values({
+            categoryId,
+            description: productDescription,
+            effectiveFrom: recordVerifiedAt,
+            issuerId,
+            logicalId: latestProduct?.logicalId ?? randomUUID(),
+            name: record.productName,
+            primaryAssetId,
+            publicationStatus: entityPublicationStatus,
+            publishedAt: expectedPublishedAt,
+            slug: record.slug,
+            symbol: record.symbol.toUpperCase(),
+            verifiedAt: recordVerifiedAt,
+            version: (latestProduct?.version ?? 0) + 1
           })
-          .where(and(eq(products.id, latestProduct.id), isNull(products.effectiveTo)));
+          .returning({ id: products.id });
+        if (createdProduct === undefined) throw new Error(`Product ${record.slug} was not created`);
+        product = createdProduct;
       }
-      const [product] = await transaction
-        .insert(products)
-        .values({
-          categoryId,
-          description:
-            "Source-verified catalog identity. Live metrics are admitted separately as timestamped observations.",
-          effectiveFrom: plan.verifiedAt,
-          issuerId,
-          logicalId: latestProduct?.logicalId ?? randomUUID(),
-          name: record.productName,
-          primaryAssetId,
-          publicationStatus: entityPublicationStatus,
-          publishedAt: entityPublicationStatus === "PUBLISHED" ? plan.verifiedAt : null,
-          slug: record.slug,
-          symbol: record.symbol.toUpperCase(),
-          verifiedAt: plan.verifiedAt,
-          version: (latestProduct?.version ?? 0) + 1
-        })
-        .returning({ id: products.id });
-      if (product === undefined) throw new Error(`Product ${record.slug} was not created`);
 
       const [latestRoute] = await transaction
         .select({
+          accessMethod: productRoutes.accessMethod,
+          archivedAt: productRoutes.archivedAt,
+          chainId: productRoutes.chainId,
+          depositAssetId: productRoutes.depositAssetId,
           effectiveFrom: productRoutes.effectiveFrom,
           effectiveTo: productRoutes.effectiveTo,
           id: productRoutes.id,
+          isNative: productRoutes.isNative,
+          lifecycleStatus: productRoutes.lifecycleStatus,
           logicalId: productRoutes.logicalId,
+          name: productRoutes.name,
+          productId: productRoutes.productId,
+          protocolId: productRoutes.protocolId,
+          publicationStatus: productRoutes.publicationStatus,
+          publishedAt: productRoutes.publishedAt,
+          requiresKyc: productRoutes.requiresKyc,
+          verifiedAt: productRoutes.verifiedAt,
           version: productRoutes.version
         })
         .from(productRoutes)
         .where(eq(productRoutes.slug, record.slug))
         .orderBy(desc(productRoutes.version))
         .limit(1);
-      if (latestRoute?.effectiveTo === null) {
-        if (plan.verifiedAt <= latestRoute.effectiveFrom) {
+      const activeYieldSources =
+        latestRoute === undefined
+          ? []
+          : await transaction
+              .select({ yieldSourceId: productYieldSources.yieldSourceId })
+              .from(productYieldSources)
+              .where(
+                and(
+                  eq(productYieldSources.routeId, latestRoute.id),
+                  isNull(productYieldSources.effectiveTo)
+                )
+              );
+      const accessMethod = accessMethodMap[record.category];
+      const expectedDepositAssetId = accessMethod === "NATIVE_HOLD" ? primaryAssetId : null;
+      const routeMatches =
+        latestRoute !== undefined &&
+        latestRoute.archivedAt === null &&
+        latestRoute.effectiveTo === null &&
+        latestRoute.accessMethod === accessMethod &&
+        latestRoute.chainId === chainId &&
+        latestRoute.depositAssetId === expectedDepositAssetId &&
+        latestRoute.isNative === (accessMethod === "NATIVE_HOLD") &&
+        latestRoute.lifecycleStatus === "ACTIVE" &&
+        latestRoute.name === record.routeName &&
+        latestRoute.productId === product.id &&
+        latestRoute.protocolId === protocolId &&
+        latestRoute.publicationStatus === entityPublicationStatus &&
+        latestRoute.publishedAt?.getTime() === expectedPublishedAt?.getTime() &&
+        latestRoute.requiresKyc === record.kycRequired &&
+        latestRoute.verifiedAt?.getTime() === recordVerifiedAt.getTime() &&
+        activeYieldSources.length === 1 &&
+        activeYieldSources[0]?.yieldSourceId === yieldSourceId;
+      let route: Readonly<{ id: string }>;
+      if (routeMatches) {
+        route = { id: latestRoute.id };
+      } else {
+        if (existingBatch !== undefined) {
+          throw new Error(`Catalog route ${record.slug} drifted after its reviewed import`);
+        }
+        if (latestRoute !== undefined && recordVerifiedAt <= latestRoute.effectiveFrom) {
           throw new Error(`Catalog route ${record.slug} has a non-monotonic cutoff`);
         }
-        await transaction
-          .update(productRoutes)
-          .set({
-            effectiveTo: plan.verifiedAt,
-            publicationStatus: "SUPERSEDED",
-            updatedAt: plan.verifiedAt
+        if (latestRoute?.effectiveTo === null) {
+          await transaction
+            .update(productRoutes)
+            .set({
+              effectiveTo: recordVerifiedAt,
+              publicationStatus: "SUPERSEDED",
+              updatedAt: recordVerifiedAt
+            })
+            .where(and(eq(productRoutes.id, latestRoute.id), isNull(productRoutes.effectiveTo)));
+          await transaction
+            .update(productYieldSources)
+            .set({ effectiveTo: recordVerifiedAt })
+            .where(
+              and(
+                eq(productYieldSources.routeId, latestRoute.id),
+                isNull(productYieldSources.effectiveTo)
+              )
+            );
+        }
+        const [createdRoute] = await transaction
+          .insert(productRoutes)
+          .values({
+            accessMethod,
+            chainId,
+            depositAssetId: expectedDepositAssetId,
+            effectiveFrom: recordVerifiedAt,
+            isNative: accessMethod === "NATIVE_HOLD",
+            logicalId: latestRoute?.logicalId ?? randomUUID(),
+            name: record.routeName,
+            productId: product.id,
+            protocolId,
+            publicationStatus: entityPublicationStatus,
+            publishedAt: expectedPublishedAt,
+            requiresKyc: record.kycRequired,
+            slug: record.slug,
+            verifiedAt: recordVerifiedAt,
+            version: (latestRoute?.version ?? 0) + 1
           })
-          .where(and(eq(productRoutes.id, latestRoute.id), isNull(productRoutes.effectiveTo)));
-      }
-      const accessMethod = accessMethodMap[record.category];
-      const [route] = await transaction
-        .insert(productRoutes)
-        .values({
-          accessMethod,
-          chainId,
-          depositAssetId: accessMethod === "NATIVE_HOLD" ? primaryAssetId : null,
-          effectiveFrom: plan.verifiedAt,
-          isNative: accessMethod === "NATIVE_HOLD",
-          logicalId: latestRoute?.logicalId ?? randomUUID(),
-          name: record.routeName,
-          productId: product.id,
-          protocolId,
-          publicationStatus: entityPublicationStatus,
-          publishedAt: entityPublicationStatus === "PUBLISHED" ? plan.verifiedAt : null,
-          requiresKyc: record.kycRequired,
-          slug: record.slug,
-          verifiedAt: plan.verifiedAt,
-          version: (latestRoute?.version ?? 0) + 1
-        })
-        .returning({ id: productRoutes.id });
-      if (route === undefined) throw new Error(`Route ${record.slug} was not created`);
+          .returning({ id: productRoutes.id });
+        if (createdRoute === undefined) throw new Error(`Route ${record.slug} was not created`);
+        route = createdRoute;
 
-      await transaction.insert(productYieldSources).values({
-        effectiveFrom: plan.verifiedAt,
-        routeId: route.id,
-        yieldSourceId
-      });
-      await transaction.insert(catalogImportRecords).values({
-        accessMethodDescription: record.accessMethod,
-        batchId: batch.id,
-        chainLabel: record.chain,
-        confidence: record.confidence,
-        discoveryStatus: record.status,
-        eligibilitySummary: record.eligibilitySummary,
-        externalRecordId: record.id,
-        productId: product.id,
-        publicationStatus: catalogPublicationStatus,
-        recordSha256: hashJson(record),
-        redemptionSummary: record.redemptionSummary,
-        routeId: route.id,
-        sourceId,
-        underlyingAsset: record.underlyingAsset,
-        verifiedAt: plan.verifiedAt,
-        warnings: [...record.warnings]
-      });
+        await transaction.insert(productYieldSources).values({
+          effectiveFrom: recordVerifiedAt,
+          routeId: route.id,
+          yieldSourceId
+        });
+      }
+      if (existingBatch === undefined) {
+        await transaction.insert(catalogImportRecords).values({
+          accessMethodDescription: record.accessMethod,
+          batchId: batch.id,
+          chainLabel: record.chain,
+          confidence: record.confidence,
+          discoveryStatus: record.status,
+          eligibilitySummary: record.eligibilitySummary,
+          externalRecordId: record.id,
+          productId: product.id,
+          publicationStatus: catalogPublicationStatus,
+          recordSha256,
+          redemptionSummary: record.redemptionSummary,
+          routeId: route.id,
+          sourceId,
+          underlyingAsset: record.underlyingAsset,
+          verifiedAt: recordVerifiedAt,
+          warnings: [...record.warnings]
+        });
+      }
     }
 
     return {
       batchId: batch.id,
       gatedRecords: plan.gatedCount,
-      outcome: "IMPORTED",
+      outcome: existingBatch === undefined ? "IMPORTED" : "DUPLICATE",
       payloadSha256: plan.payloadSha256,
       publishedRecords: plan.publishedCount,
-      recordsImported: plan.recordCount
+      recordsImported: existingBatch === undefined ? plan.recordCount : 0
     };
   });
 };

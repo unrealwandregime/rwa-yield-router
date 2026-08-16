@@ -3,11 +3,12 @@ import { LegalStrip } from "@/components/legal-strip";
 import { PageHeader } from "@/components/page-header";
 import { ScreenerClient } from "@/components/screener-client";
 import { getLiveCatalog } from "@/lib/live-morpho";
+import { getAuthenticatedUser } from "@/lib/supabase/server";
 
 export const metadata = { title: "Universal yield screener" };
 
 export default async function ScreenerPage() {
-  const records = await getLiveCatalog();
+  const [records, user] = await Promise.all([getLiveCatalog(), getAuthenticatedUser()]);
   return (
     <>
       <PageHeader
@@ -17,7 +18,7 @@ export default async function ScreenerPage() {
       />
       <LegalStrip compact />
       <Suspense fallback={<div className="data-state">Loading screener controls…</div>}>
-        <ScreenerClient records={records} />
+        <ScreenerClient records={records} savedViewsEnabled={user !== null} />
       </Suspense>
     </>
   );

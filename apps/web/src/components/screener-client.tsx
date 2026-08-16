@@ -5,14 +5,20 @@ import { Download, GitCompareArrows, Search, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
-import { z } from "zod";
+import { confidenceClassificationSchema } from "@rwa-yield-router/domain";
 import { ConfidenceBadge } from "@/components/confidence-badge";
+import { SavedViewsManager } from "@/components/saved-views-manager";
 import { CATEGORY_META, CATEGORY_VALUES } from "@/lib/constants";
 import type { CatalogRecord } from "@/lib/catalog";
 import { csvSafe, formatPercent, formatRisk, formatTimestamp, formatUsd } from "@/lib/format";
-
-type SortKey = "product" | "grossApy" | "riskAdjustedApy" | "risk" | "recent";
-const sortKeySchema = z.enum(["product", "grossApy", "riskAdjustedApy", "risk", "recent"]);
+import {
+  SCREENER_COLUMN_LABELS,
+  SCREENER_COLUMN_VALUES,
+  screenerSortKeySchema,
+  type SavedViewState,
+  type ScreenerColumn,
+  type ScreenerSortKey
+} from "@/lib/saved-research-contract";
 
 const PAGE_SIZE = 25;
 
@@ -22,17 +28,28 @@ const toComparable = (value: string | null, missing: number): number => {
   return Number.isFinite(parsed) ? parsed : missing;
 };
 
-export function ScreenerClient({ records }: { records: CatalogRecord[] }) {
+export function ScreenerClient({
+  records,
+  savedViewsEnabled
+}: {
+  records: CatalogRecord[];
+  savedViewsEnabled: boolean;
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [selected, setSelected] = useState<string[]>([]);
+  const [visibleColumns, setVisibleColumns] = useState<readonly ScreenerColumn[]>([
+    ...SCREENER_COLUMN_VALUES
+  ]);
   const query = searchParams.get("q") ?? "";
   const category = searchParams.get("category") ?? "ALL";
   const chain = searchParams.get("chain") ?? "ALL";
   const confidence = searchParams.get("confidence") ?? "ALL";
-  const parsedSort = sortKeySchema.safeParse(searchParams.get("sort") ?? "product");
-  const sort: SortKey = parsedSort.success ? parsedSort.data : "product";
+  const parsedConfidence = confidenceClassificationSchema.safeParse(confidence);
+  const savedConfidence = parsedConfidence.success ? parsedConfidence.data : null;
+  const parsedSort = screenerSortKeySchema.safeParse(searchParams.get("sort") ?? "product");
+  const sort: ScreenerSortKey = parsedSort.success ? parsedSort.data : "product";
   const page = Math.max(1, Number(searchParams.get("page") ?? "1") || 1);
 
   const setParam = (name: string, value: string) => {
@@ -51,6 +68,45 @@ export function ScreenerClient({ records }: { records: CatalogRecord[] }) {
     () => [...new Set(records.map((record) => record.confidence))].sort(),
     [records]
   );
+  const visible = useMemo(() => new Set(visibleColumns), [visibleColumns]);
+  const currentView: SavedViewState = useMemo(
+    () => ({
+      filters: {
+        category: CATEGORY_VALUES.find((value) => value === category) ?? null,
+        chain: chains.includes(chain) ? chain : null,
+        confidence:
+          savedConfidence !== null && confidences.includes(savedConfidence)
+            ? savedConfidence
+            : null,
+        query: query.slice(0, 120)
+      },
+      sort: { key: sort },
+      visibleColumns: [...visibleColumns]
+    }),
+    [category, chain, chains, confidences, query, savedConfidence, sort, visibleColumns]
+  );
+
+  const applyView = (view: SavedViewState) => {
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("page");
+    for (const name of ["q", "category", "chain", "confidence", "sort"]) next.delete(name);
+    if (view.filters.query !== "") next.set("q", view.filters.query);
+    if (view.filters.category !== null) next.set("category", view.filters.category);
+    if (view.filters.chain !== null) next.set("chain", view.filters.chain);
+    if (view.filters.confidence !== null) next.set("confidence", view.filters.confidence);
+    if (view.sort.key !== "product") next.set("sort", view.sort.key);
+    setVisibleColumns([...view.visibleColumns]);
+    router.replace(`${pathname}?${next.toString()}`, { scroll: false });
+  };
+
+  const toggleColumn = (column: ScreenerColumn) => {
+    setVisibleColumns((current) => {
+      if (current.includes(column)) {
+        return current.length === 1 ? current : current.filter((value) => value !== column);
+      }
+      return SCREENER_COLUMN_VALUES.filter((value) => value === column || current.includes(value));
+    });
+  };
 
   const filtered = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -166,6 +222,7 @@ export function ScreenerClient({ records }: { records: CatalogRecord[] }) {
               className="input"
               defaultValue={query}
               key={query}
+              maxLength={120}
               onChange={(event) => setParam("q", event.currentTarget.value)}
               placeholder="Search product, issuer, protocol, or asset"
               style={{ paddingLeft: 36 }}
@@ -259,6 +316,25 @@ export function ScreenerClient({ records }: { records: CatalogRecord[] }) {
         </div>
       </div>
 
+      <details className="panel" style={{ marginBottom: 12 }}>
+        <summary>
+          Visible columns ({visibleColumns.length}/{SCREENER_COLUMN_VALUES.length})
+        </summary>
+        <div className="form-grid" style={{ marginTop: 14 }}>
+          {SCREENER_COLUMN_VALUES.map((column) => (
+            <label className="field" key={column} style={{ flexDirection: "row" }}>
+              <input
+                checked={visible.has(column)}
+                disabled={visibleColumns.length === 1 && visible.has(column)}
+                onChange={() => toggleColumn(column)}
+                type="checkbox"
+              />
+              <span>{SCREENER_COLUMN_LABELS[column]}</span>
+            </label>
+          ))}
+        </div>
+      </details>
+
       {pageRecords.length === 0 ? (
         <div className="data-state">
           <span className="eyebrow">No results</span>
@@ -277,33 +353,43 @@ export function ScreenerClient({ records }: { records: CatalogRecord[] }) {
             <thead>
               <tr>
                 <th scope="col">Compare</th>
-                <th scope="col">Product / route</th>
-                <th scope="col">Category</th>
-                <th scope="col">Issuer / protocol</th>
-                <th scope="col">Underlying</th>
-                <th scope="col">Yield source</th>
-                <th scope="col">Chain</th>
-                <th className="numeric" scope="col">
-                  Gross APY
-                </th>
-                <th className="numeric" scope="col">
-                  Net APY
-                </th>
-                <th className="numeric" scope="col">
-                  Risk-adj. APY
-                </th>
-                <th scope="col">Risk</th>
-                <th className="numeric" scope="col">
-                  AUM / TVL
-                </th>
-                <th className="numeric" scope="col">
-                  Liquidity
-                </th>
-                <th scope="col">Redemption</th>
-                <th scope="col">KYC / eligibility</th>
-                <th scope="col">Confidence</th>
-                <th scope="col">Admission</th>
-                <th scope="col">Updated</th>
+                {visible.has("product") ? <th scope="col">Product / route</th> : null}
+                {visible.has("category") ? <th scope="col">Category</th> : null}
+                {visible.has("issuer") ? <th scope="col">Issuer / protocol</th> : null}
+                {visible.has("underlying") ? <th scope="col">Underlying</th> : null}
+                {visible.has("yieldSource") ? <th scope="col">Yield source</th> : null}
+                {visible.has("chain") ? <th scope="col">Chain</th> : null}
+                {visible.has("grossApy") ? (
+                  <th className="numeric" scope="col">
+                    Gross APY
+                  </th>
+                ) : null}
+                {visible.has("netApy") ? (
+                  <th className="numeric" scope="col">
+                    Net APY
+                  </th>
+                ) : null}
+                {visible.has("riskAdjustedApy") ? (
+                  <th className="numeric" scope="col">
+                    Risk-adj. APY
+                  </th>
+                ) : null}
+                {visible.has("risk") ? <th scope="col">Risk</th> : null}
+                {visible.has("aumTvl") ? (
+                  <th className="numeric" scope="col">
+                    AUM / TVL
+                  </th>
+                ) : null}
+                {visible.has("liquidity") ? (
+                  <th className="numeric" scope="col">
+                    Liquidity
+                  </th>
+                ) : null}
+                {visible.has("redemption") ? <th scope="col">Redemption</th> : null}
+                {visible.has("eligibility") ? <th scope="col">KYC / eligibility</th> : null}
+                {visible.has("confidence") ? <th scope="col">Confidence</th> : null}
+                {visible.has("admission") ? <th scope="col">Admission</th> : null}
+                {visible.has("updated") ? <th scope="col">Updated</th> : null}
               </tr>
             </thead>
             <tbody>
@@ -318,50 +404,78 @@ export function ScreenerClient({ records }: { records: CatalogRecord[] }) {
                       type="checkbox"
                     />
                   </td>
-                  <td>
-                    <Link className="stack" href={`/routes/${record.slug}`}>
-                      <strong>
-                        {record.productName} <span className="faint mono">{record.symbol}</span>
-                      </strong>
-                      <span className="faint">{record.routeName}</span>
-                    </Link>
-                  </td>
-                  <td>{CATEGORY_META[record.category].shortLabel}</td>
-                  <td>{record.protocol ?? record.issuer}</td>
-                  <td>{record.underlyingAsset}</td>
-                  <td>{record.yieldSource.replaceAll("_", " ")}</td>
-                  <td>
-                    <Badge>{record.chain}</Badge>
-                  </td>
-                  <td className="numeric">{formatPercent(record.grossApy)}</td>
-                  <td className="numeric">{formatPercent(record.netApy)}</td>
-                  <td className="numeric">{formatPercent(record.riskAdjustedApy)}</td>
-                  <td>{formatRisk(record.riskScore)}</td>
-                  <td className="numeric">{formatUsd(record.aumTvlUsd)}</td>
-                  <td className="numeric">{formatUsd(record.liquidityUsd)}</td>
-                  <td>{record.redemptionSummary}</td>
-                  <td>
-                    <span className="stack">
-                      <span>
-                        KYC{" "}
-                        {record.kycRequired === null
-                          ? "unknown"
-                          : record.kycRequired
-                            ? "required"
-                            : "not required"}
+                  {visible.has("product") ? (
+                    <td>
+                      <Link className="stack" href={`/routes/${record.slug}`}>
+                        <strong>
+                          {record.productName} <span className="faint mono">{record.symbol}</span>
+                        </strong>
+                        <span className="faint">{record.routeName}</span>
+                      </Link>
+                    </td>
+                  ) : null}
+                  {visible.has("category") ? (
+                    <td>{CATEGORY_META[record.category].shortLabel}</td>
+                  ) : null}
+                  {visible.has("issuer") ? <td>{record.protocol ?? record.issuer}</td> : null}
+                  {visible.has("underlying") ? <td>{record.underlyingAsset}</td> : null}
+                  {visible.has("yieldSource") ? (
+                    <td>{record.yieldSource.replaceAll("_", " ")}</td>
+                  ) : null}
+                  {visible.has("chain") ? (
+                    <td>
+                      <Badge>{record.chain}</Badge>
+                    </td>
+                  ) : null}
+                  {visible.has("grossApy") ? (
+                    <td className="numeric">{formatPercent(record.grossApy)}</td>
+                  ) : null}
+                  {visible.has("netApy") ? (
+                    <td className="numeric">{formatPercent(record.netApy)}</td>
+                  ) : null}
+                  {visible.has("riskAdjustedApy") ? (
+                    <td className="numeric">{formatPercent(record.riskAdjustedApy)}</td>
+                  ) : null}
+                  {visible.has("risk") ? <td>{formatRisk(record.riskScore)}</td> : null}
+                  {visible.has("aumTvl") ? (
+                    <td className="numeric">{formatUsd(record.aumTvlUsd)}</td>
+                  ) : null}
+                  {visible.has("liquidity") ? (
+                    <td className="numeric">{formatUsd(record.liquidityUsd)}</td>
+                  ) : null}
+                  {visible.has("redemption") ? <td>{record.redemptionSummary}</td> : null}
+                  {visible.has("eligibility") ? (
+                    <td>
+                      <span className="stack">
+                        <span>
+                          KYC{" "}
+                          {record.kycRequired === null
+                            ? "unknown"
+                            : record.kycRequired
+                              ? "required"
+                              : "not required"}
+                        </span>
+                        <span className="faint">{record.eligibilitySummary}</span>
                       </span>
-                      <span className="faint">{record.eligibilitySummary}</span>
-                    </span>
-                  </td>
-                  <td>
-                    <ConfidenceBadge confidence={record.confidence} />
-                  </td>
-                  <td>
-                    <Badge tone={record.publicationStatus === "PUBLISHED" ? "positive" : "warning"}>
-                      {record.publicationStatus === "PUBLISHED" ? "Admitted" : "Research only"}
-                    </Badge>
-                  </td>
-                  <td>{formatTimestamp(record.observedAt ?? record.verifiedAt)}</td>
+                    </td>
+                  ) : null}
+                  {visible.has("confidence") ? (
+                    <td>
+                      <ConfidenceBadge confidence={record.confidence} />
+                    </td>
+                  ) : null}
+                  {visible.has("admission") ? (
+                    <td>
+                      <Badge
+                        tone={record.publicationStatus === "PUBLISHED" ? "positive" : "warning"}
+                      >
+                        {record.publicationStatus === "PUBLISHED" ? "Admitted" : "Research only"}
+                      </Badge>
+                    </td>
+                  ) : null}
+                  {visible.has("updated") ? (
+                    <td>{formatTimestamp(record.observedAt ?? record.verifiedAt)}</td>
+                  ) : null}
                 </tr>
               ))}
             </tbody>
@@ -393,6 +507,9 @@ export function ScreenerClient({ records }: { records: CatalogRecord[] }) {
           </button>
         </nav>
       ) : null}
+      <section className="section">
+        <SavedViewsManager current={currentView} enabled={savedViewsEnabled} onApply={applyView} />
+      </section>
     </>
   );
 }

@@ -80,6 +80,34 @@ describe("checked migrations", () => {
     expect(migration).toContain("catalog_import_records_warnings_array");
   });
 
+  it("stores bounded daily history rollups with source-snapshot provenance", async () => {
+    const migration = await readMigration("0006_equal_shen.sql");
+    const utcIntegrity = await readMigration("0007_big_drax.sql");
+    const routeIntegrity = await readMigration("0008_naive_bloodstrike.sql");
+    const snapshotConsistency = await readMigration("0010_rollup_snapshot_consistency.sql");
+
+    expect(migration).toContain('CREATE TABLE "yield_history_rollups"');
+    expect(migration).toContain("yield_history_rollups_route_bucket_version_unique");
+    expect(migration).toContain("yield_history_rollups_source_yield_snapshot_id_yield_snapshots");
+    expect(migration).toContain("yield_history_rollups_bucket_alignment");
+    expect(migration).toContain("yield_history_rollups_time_order");
+    expect(utcIntegrity).toContain("yield_snapshots_id_route_unique");
+    expect(utcIntegrity).toContain(
+      "date_trunc('day', \"yield_history_rollups\".\"bucket_start\", 'UTC')"
+    );
+    expect(routeIntegrity).toContain("yield_history_rollups_snapshot_route_fk");
+    expect(snapshotConsistency).toContain("validate_yield_history_rollup_snapshot_fields");
+    expect(snapshotConsistency).toContain("must exactly match its source yield snapshot");
+  });
+
+  it("makes the reviewed catalog import audit append-only", async () => {
+    const migration = await readMigration("0009_catalog_import_append_only.sql");
+
+    expect(migration).toContain("prevent_catalog_import_batches_mutation");
+    expect(migration).toContain("prevent_catalog_import_records_mutation");
+    expect(migration).toContain("prevent_append_only_mutation");
+  });
+
   it("registers all migrations in order", async () => {
     const journalPath = new URL("meta/_journal.json", migrationsDirectory);
     const journal = JSON.parse(await readFile(journalPath, "utf8")) as {
@@ -92,7 +120,12 @@ describe("checked migrations", () => {
       { idx: 2, tag: "0002_public_slugs" },
       { idx: 3, tag: "0003_relationship_integrity" },
       { idx: 4, tag: "0004_composite_relationships" },
-      { idx: 5, tag: "0005_production_catalog_import" }
+      { idx: 5, tag: "0005_production_catalog_import" },
+      { idx: 6, tag: "0006_equal_shen" },
+      { idx: 7, tag: "0007_big_drax" },
+      { idx: 8, tag: "0008_naive_bloodstrike" },
+      { idx: 9, tag: "0009_catalog_import_append_only" },
+      { idx: 10, tag: "0010_rollup_snapshot_consistency" }
     ]);
     expect(fileURLToPath(journalPath)).toContain("migrations");
   });

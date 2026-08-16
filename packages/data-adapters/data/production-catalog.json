@@ -2,6 +2,17 @@
   "schemaVersion": "1.0.0",
   "researchSnapshot": "2026-07-13",
   "verifiedAt": "2026-07-13T00:00:00.000Z",
+  "recordVerifiedAt": {
+    "DL-01": "2026-07-18T00:00:00.000Z",
+    "MM-06": "2026-07-18T00:00:00.000Z",
+    "CE-01": "2026-07-18T00:00:00.000Z"
+  },
+  "sourceVerifiedAt": {
+    "AAVE": "2026-07-18T00:00:00.000Z",
+    "AAVE-V3-ETH-USDC": "2026-07-18T00:00:00.000Z",
+    "USYC-ETH": "2026-07-18T00:00:00.000Z",
+    "CIRCLE-USDC-ETH": "2026-07-18T00:00:00.000Z"
+  },
   "columns": [
     "id",
     "slug",
@@ -41,7 +52,12 @@
     },
     "AAVE": {
       "name": "Aave official address book",
-      "url": "https://github.com/bgd-labs/aave-address-book",
+      "url": "https://github.com/aave-dao/aave-address-book",
+      "type": "OFFICIAL_DOCUMENT"
+    },
+    "AAVE-V3-ETH-USDC": {
+      "name": "Aave V3 Ethereum canonical address book",
+      "url": "https://github.com/aave-dao/aave-address-book/blob/main/src/AaveV3Ethereum.sol",
       "type": "OFFICIAL_DOCUMENT"
     },
     "COMPOUND": {
@@ -72,6 +88,11 @@
     "USYC": {
       "name": "Circle USYC",
       "url": "https://www.circle.com/usyc",
+      "type": "OFFICIAL_DOCUMENT"
+    },
+    "USYC-ETH": {
+      "name": "Circle USYC Ethereum contract registry",
+      "url": "https://developers.circle.com/tokenized/usyc/smart-contracts",
       "type": "OFFICIAL_DOCUMENT"
     },
     "DIGIFT": {
@@ -117,6 +138,11 @@
     "CIRCLE": {
       "name": "Circle stablecoins",
       "url": "https://www.circle.com/usdc",
+      "type": "OFFICIAL_DOCUMENT"
+    },
+    "CIRCLE-USDC-ETH": {
+      "name": "Circle native USDC contract registry",
+      "url": "https://developers.circle.com/stablecoins/usdc-contract-addresses",
       "type": "OFFICIAL_DOCUMENT"
     },
     "TETHER": {
@@ -484,10 +510,10 @@
       "Circle",
       "Aave V3",
       "USDC",
-      "SOURCE_CONFIRMED",
+      "IDENTITY_CONFIRMED",
       null,
       "VERIFIED_OFFICIAL",
-      "AAVE"
+      "AAVE-V3-ETH-USDC"
     ],
     [
       "DL-02",
@@ -725,10 +751,10 @@
       "Circle",
       null,
       "Government money-market fund shares",
-      "SOURCE_CONFIRMED",
+      "IDENTITY_CONFIRMED",
       true,
       "VERIFIED_OFFICIAL",
-      "USYC"
+      "USYC-ETH"
     ],
     [
       "MM-07",
@@ -961,16 +987,16 @@
       "usdc-base-asset",
       "USD Coin",
       "USDC",
-      "USDC base-asset hold",
+      "Native USDC hold on Ethereum",
       "CASH_EQUIVALENT",
-      "Multi-chain",
+      "Ethereum",
       "Circle",
       null,
       "USD reserves",
-      "SOURCE_CONFIRMED",
+      "IDENTITY_CONFIRMED",
       null,
       "VERIFIED_OFFICIAL",
-      "CIRCLE"
+      "CIRCLE-USDC-ETH"
     ],
     [
       "CE-02",

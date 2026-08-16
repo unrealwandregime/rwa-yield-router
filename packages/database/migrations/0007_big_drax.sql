@@ -1,0 +1,3 @@
+ALTER TABLE "yield_history_rollups" DROP CONSTRAINT "yield_history_rollups_bucket_alignment";--> statement-breakpoint
+ALTER TABLE "yield_snapshots" ADD CONSTRAINT "yield_snapshots_id_route_unique" UNIQUE("id","route_id");--> statement-breakpoint
+ALTER TABLE "yield_history_rollups" ADD CONSTRAINT "yield_history_rollups_bucket_alignment" CHECK ("yield_history_rollups"."bucket_start" = date_trunc('day', "yield_history_rollups"."bucket_start", 'UTC'));

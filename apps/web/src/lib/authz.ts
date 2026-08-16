@@ -1,4 +1,5 @@
 import "server-only";
+import { getServerConfig } from "@rwa-yield-router/config";
 import {
   getDatabase,
   getUserAuthorizationByAuthSubject,
@@ -48,7 +49,7 @@ export async function authorizePrivateRequest(
       ok: false,
       response: apiError(429, "RATE_LIMITED", "Private API rate limit exceeded.")
     };
-  if (!process.env.DATABASE_URL)
+  if (!getServerConfig().databaseUrl)
     return {
       ok: false,
       response: apiError(

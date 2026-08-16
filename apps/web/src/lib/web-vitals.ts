@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { getServerConfig } from "@rwa-yield-router/config";
 
 export const webVitalPayloadSchema = z
   .object({
@@ -18,6 +19,22 @@ export const webVitalPayloadSchema = z
   .strict();
 
 export type WebVitalPayload = z.infer<typeof webVitalPayloadSchema>;
+
+export function createWebVitalLogRecord(
+  metric: WebVitalPayload,
+  correlationId: string,
+  observedAt = new Date()
+): Readonly<Record<string, unknown>> {
+  return {
+    timestamp: observedAt.toISOString(),
+    severity: "info",
+    service: "rwa-yield-router-web",
+    environment: getServerConfig().nodeEnv,
+    event: "web_vital.observed",
+    correlationId,
+    metric
+  };
+}
 
 export function normalizeWebVital(metric: unknown): WebVitalPayload | null {
   if (metric === null || typeof metric !== "object") return null;

@@ -1,4 +1,5 @@
 import "server-only";
+import { getServerConfig } from "@rwa-yield-router/config";
 import { getDatabase, getUserAuthorizationByAuthSubject } from "@rwa-yield-router/database";
 import { ShieldAlert } from "lucide-react";
 import Link from "next/link";
@@ -15,7 +16,7 @@ export async function AdminGate({ children }: { children: ReactNode }) {
         signIn
       />
     );
-  if (!process.env.DATABASE_URL)
+  if (!getServerConfig().databaseUrl)
     return (
       <AdminDenied
         title="Administration is unavailable"

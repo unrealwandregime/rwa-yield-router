@@ -19,18 +19,64 @@ const optionalHttpsUrlSchema = z.preprocess(
     .optional()
 );
 
+const canonicalApplicationUrlSchema = z.url().refine(
+  (value) => {
+    const parsed = new URL(value);
+    return (
+      parsed.username === "" &&
+      parsed.password === "" &&
+      parsed.pathname === "/" &&
+      parsed.search === "" &&
+      parsed.hash === ""
+    );
+  },
+  { message: "APP_URL must be a canonical origin without credentials, path, query, or fragment" }
+);
+
+const optionalRedisUrlSchema = z.preprocess(
+  (value) => (value === "" ? undefined : value),
+  z
+    .url()
+    .refine((value) => ["redis:", "rediss:"].includes(new URL(value).protocol), {
+      message: "REDIS_URL must use redis:// or rediss://"
+    })
+    .optional()
+);
+
+const supabaseUrlSchema = z.url().refine(
+  (value) => {
+    const parsed = new URL(value);
+    return (
+      parsed.protocol === "https:" &&
+      parsed.username === "" &&
+      parsed.password === "" &&
+      !parsed.hostname.includes("*")
+    );
+  },
+  { message: "Supabase URL must be a credential-free HTTPS URL without wildcards" }
+);
+
+const optionalSupabaseUrlSchema = z.preprocess(
+  (value) => (value === "" ? undefined : value),
+  supabaseUrlSchema.optional()
+);
+
+const MORPHO_API_URL = "https://api.morpho.org/graphql" as const;
+
 const serverEnvironmentSchema = z
   .object({
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
-    APP_URL: z.url().default("http://localhost:3000"),
+    APP_URL: canonicalApplicationUrlSchema.default("http://localhost:3000"),
+    DEPLOYMENT_TIER: z.enum(["preview", "production"]).default("production"),
+    TRUSTED_PROXY_MODE: z.enum(["none", "render"]).default("none"),
     LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
     DATABASE_URL: optionalUrlSchema,
     DATABASE_MIGRATION_URL: optionalUrlSchema,
-    REDIS_URL: optionalUrlSchema,
+    REDIS_URL: optionalRedisUrlSchema,
     DATA_ENCRYPTION_KEY: optionalSecretSchema,
     CRON_SHARED_SECRET: optionalSecretSchema,
     SUPABASE_SERVICE_ROLE_KEY: optionalSecretSchema,
-    NEXT_PUBLIC_SUPABASE_URL: optionalHttpsUrlSchema,
+    NEXT_PUBLIC_SUPABASE_URL: optionalSupabaseUrlSchema,
     NEXT_PUBLIC_SUPABASE_ANON_KEY: z.preprocess(
       (value) => (value === "" ? undefined : value),
       z.string().trim().min(1).optional()
@@ -38,12 +84,11 @@ const serverEnvironmentSchema = z
     RPC_URL_ETHEREUM: optionalHttpsUrlSchema,
     RPC_URL_BASE: optionalHttpsUrlSchema,
     RPC_URL_ARBITRUM: optionalHttpsUrlSchema,
-    MORPHO_API_URL: z
-      .url()
-      .refine((value) => new URL(value).protocol === "https:", {
-        message: "MORPHO_API_URL must use HTTPS"
-      })
-      .default("https://api.morpho.org/graphql"),
+    MORPHO_API_URL: z.literal(MORPHO_API_URL).default(MORPHO_API_URL),
+    REQUEST_TIME_PROVIDER_FETCH_ENABLED: z
+      .enum(["true", "false"])
+      .default("true")
+      .transform((value) => value === "true"),
     PRICE_PROVIDER_URL: optionalHttpsUrlSchema,
     PRICE_PROVIDER_API_KEY: optionalSecretSchema,
     EMAIL_TRANSPORT: z.enum(["console", "resend", "disabled"]).default("console"),
@@ -92,14 +137,15 @@ const serverEnvironmentSchema = z
         const databaseUrl = value[key];
         if (databaseUrl === undefined) continue;
         const parsed = new URL(databaseUrl);
-        const sslMode = parsed.searchParams.get("sslmode");
+        const sslModes = parsed.searchParams.getAll("sslmode");
         if (
           (parsed.protocol !== "postgres:" && parsed.protocol !== "postgresql:") ||
-          !["require", "verify-ca", "verify-full"].includes(sslMode ?? "")
+          sslModes.length !== 1 ||
+          !["require", "verify-ca", "verify-full"].includes(sslModes[0] ?? "")
         )
           context.addIssue({
             code: "custom",
-            message: `${key} must be PostgreSQL with sslmode=require or stronger in production`,
+            message: `${key} must be PostgreSQL with exactly one sslmode=require or stronger in production`,
             path: [key]
           });
       }
@@ -109,6 +155,18 @@ const serverEnvironmentSchema = z
           message: "Console email transport is forbidden in production",
           path: ["EMAIL_TRANSPORT"]
         });
+      if (value.EMAIL_TRANSPORT === "resend" && value.EMAIL_FROM.toLowerCase().endsWith(".invalid"))
+        context.addIssue({
+          code: "custom",
+          message: "EMAIL_FROM must be an explicitly configured deliverable sender in production",
+          path: ["EMAIL_FROM"]
+        });
+      if (value.DEPLOYMENT_TIER === "production" && !value.REQUEST_TIME_PROVIDER_FETCH_ENABLED)
+        context.addIssue({
+          code: "custom",
+          message: "REQUEST_TIME_PROVIDER_FETCH_ENABLED=false is restricted to degraded previews",
+          path: ["REQUEST_TIME_PROVIDER_FETCH_ENABLED"]
+        });
     }
     if (value.EMAIL_TRANSPORT === "resend" && value.RESEND_API_KEY === undefined) {
       context.addIssue({
@@ -117,18 +175,50 @@ const serverEnvironmentSchema = z
         path: ["RESEND_API_KEY"]
       });
     }
+    const supabaseValues = [value.NEXT_PUBLIC_SUPABASE_URL, value.NEXT_PUBLIC_SUPABASE_ANON_KEY];
+    if (supabaseValues.filter((entry) => entry !== undefined).length === 1) {
+      context.addIssue({
+        code: "custom",
+        message: "NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY must be set together",
+        path: ["NEXT_PUBLIC_SUPABASE_URL"]
+      });
+    }
   });
 
 const clientEnvironmentSchema = z
   .object({
-    NEXT_PUBLIC_SUPABASE_URL: z.url(),
+    NEXT_PUBLIC_SUPABASE_URL: supabaseUrlSchema,
     NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().trim().min(1)
   })
   .strict();
 
+const publicEnvironmentSchema = z
+  .object({
+    APP_URL: canonicalApplicationUrlSchema.default("http://localhost:3000"),
+    NEXT_PUBLIC_SUPABASE_URL: optionalSupabaseUrlSchema,
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: z.preprocess(
+      (value) => (value === "" ? undefined : value),
+      z.string().trim().min(1).optional()
+    )
+  })
+  .superRefine((value, context) => {
+    const configured = [value.NEXT_PUBLIC_SUPABASE_URL, value.NEXT_PUBLIC_SUPABASE_ANON_KEY].filter(
+      (entry) => entry !== undefined
+    ).length;
+    if (configured === 1) {
+      context.addIssue({
+        code: "custom",
+        message: "NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY must be set together",
+        path: ["NEXT_PUBLIC_SUPABASE_URL"]
+      });
+    }
+  });
+
 export type ServerConfig = Readonly<{
   nodeEnv: z.infer<typeof serverEnvironmentSchema>["NODE_ENV"];
   appUrl: string;
+  deploymentTier: z.infer<typeof serverEnvironmentSchema>["DEPLOYMENT_TIER"];
+  trustedProxyMode: z.infer<typeof serverEnvironmentSchema>["TRUSTED_PROXY_MODE"];
   logLevel: z.infer<typeof serverEnvironmentSchema>["LOG_LEVEL"];
   databaseUrl?: string | undefined;
   databaseMigrationUrl?: string | undefined;
@@ -141,6 +231,7 @@ export type ServerConfig = Readonly<{
   rpcUrlEthereum?: string | undefined;
   rpcUrls: Readonly<Partial<Record<"ethereum" | "base" | "arbitrum", string | undefined>>>;
   morphoApiUrl: string;
+  requestTimeProviderFetchEnabled: boolean;
   priceProviderUrl?: string | undefined;
   priceProviderApiKey?: string | undefined;
   securityContactUrl?: string | undefined;
@@ -173,8 +264,8 @@ export type ServerConfig = Readonly<{
 }>;
 
 export type ClientConfig = Readonly<{
-  supabaseUrl?: string | undefined;
-  supabaseAnonKey?: string | undefined;
+  supabaseUrl: string;
+  supabaseAnonKey: string;
 }>;
 
 function includeDefined<T extends Record<string, string | undefined>>(values: T): Partial<T> {
@@ -191,6 +282,8 @@ export function loadServerConfig(
   return {
     nodeEnv: value.NODE_ENV,
     appUrl: value.APP_URL,
+    deploymentTier: value.DEPLOYMENT_TIER,
+    trustedProxyMode: value.TRUSTED_PROXY_MODE,
     logLevel: value.LOG_LEVEL,
     ...includeDefined({
       databaseUrl: value.DATABASE_URL,
@@ -212,6 +305,7 @@ export function loadServerConfig(
       arbitrum: value.RPC_URL_ARBITRUM
     }),
     morphoApiUrl: value.MORPHO_API_URL,
+    requestTimeProviderFetchEnabled: value.REQUEST_TIME_PROVIDER_FETCH_ENABLED,
     email: {
       transport: value.EMAIL_TRANSPORT,
       from: value.EMAIL_FROM,
@@ -285,9 +379,8 @@ export function loadWebServerConfig(
   environment: Readonly<Record<string, string | undefined>>
 ): ServerConfig {
   const config = loadServerConfig(environment);
-  requireProductionValues(config, [
+  const requirements = [
     { name: "DATABASE_URL", value: config.databaseUrl },
-    { name: "REDIS_URL", value: config.redisUrl },
     { name: "NEXT_PUBLIC_SUPABASE_URL", value: config.supabaseUrl },
     { name: "NEXT_PUBLIC_SUPABASE_ANON_KEY", value: config.supabaseAnonKey },
     { name: "DATA_ENCRYPTION_KEY", value: config.dataEncryptionKey },
@@ -298,7 +391,13 @@ export function loadWebServerConfig(
           ? config.observability.mode
           : (config.observability.sentryDsn ?? config.observability.otlpEndpoint)
     }
-  ]);
+  ];
+  requireProductionValues(
+    config,
+    config.deploymentTier === "production"
+      ? [{ name: "REDIS_URL", value: config.redisUrl }, ...requirements]
+      : requirements
+  );
   return config;
 }
 
@@ -324,7 +423,11 @@ export function loadWorkerServerConfig(
           : (config.observability.sentryDsn ?? config.observability.otlpEndpoint)
     }
   ]);
-  if (config.nodeEnv === "production" && config.email.transport !== "resend")
+  if (
+    config.nodeEnv === "production" &&
+    config.deploymentTier === "production" &&
+    config.email.transport !== "resend"
+  )
     throw new Error("EMAIL_TRANSPORT=resend is required for the production worker");
   return config;
 }
@@ -338,12 +441,16 @@ export function getWorkerServerConfig(
 export function getPublicConfig(
   environment: Readonly<Record<string, string | undefined>> = process.env
 ): PublicConfig {
-  const appUrl = z.url().parse(environment.APP_URL ?? "http://localhost:3000");
+  const value = publicEnvironmentSchema.parse({
+    APP_URL: environment.APP_URL,
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: environment.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    NEXT_PUBLIC_SUPABASE_URL: environment.NEXT_PUBLIC_SUPABASE_URL
+  });
   return {
-    appUrl,
+    appUrl: value.APP_URL,
     ...includeDefined({
-      supabaseUrl: environment.NEXT_PUBLIC_SUPABASE_URL,
-      supabaseAnonKey: environment.NEXT_PUBLIC_SUPABASE_ANON_KEY
+      supabaseUrl: value.NEXT_PUBLIC_SUPABASE_URL,
+      supabaseAnonKey: value.NEXT_PUBLIC_SUPABASE_ANON_KEY
     })
   };
 }

@@ -11,18 +11,28 @@ describe("production catalog import planning", () => {
     const plan = buildProductionCatalogImportPlan();
 
     expect(plan.recordCount).toBe(60);
-    expect(plan.publishedCount).toBe(23);
-    expect(plan.gatedCount).toBe(37);
+    expect(plan.publishedCount).toBe(26);
+    expect(plan.gatedCount).toBe(34);
     expect(plan.draftCount).toBe(0);
     expect(plan.payloadSha256).toMatch(/^[0-9a-f]{64}$/u);
     expect(plan.records.every((record) => record.grossApy === null)).toBe(true);
+    expect(plan.verifiedAt.toISOString()).toBe(
+      productionCatalog
+        .map((record) => record.verifiedAt)
+        .sort((left, right) => right.localeCompare(left))[0]
+    );
+    expect(new Set(plan.records.map((record) => record.verifiedAt)).size).toBeGreaterThan(1);
   });
 
   it("hashes records deterministically regardless of input order", () => {
     const forward = buildProductionCatalogImportPlan(productionCatalog);
     const reverse = buildProductionCatalogImportPlan([...productionCatalog].reverse());
+    const reorderedProperties = buildProductionCatalogImportPlan(
+      productionCatalog.map(({ warnings, ...record }) => ({ warnings: [...warnings], ...record }))
+    );
 
     expect(reverse.payloadSha256).toBe(forward.payloadSha256);
+    expect(reorderedProperties.payloadSha256).toBe(forward.payloadSha256);
     expect(reverse.records.map((record) => record.id)).toEqual(
       forward.records.map((record) => record.id)
     );

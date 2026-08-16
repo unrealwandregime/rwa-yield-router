@@ -32,6 +32,16 @@ const readRequiredUrl = (key: string, environment: DatabaseEnvironment): string 
       `Invalid ${key}: ${result.error.issues.map((issue) => issue.message).join(", ")}`
     );
   }
+  if (environment.NODE_ENV === "production") {
+    const sslModes = new URL(result.data).searchParams.getAll("sslmode");
+    if (
+      sslModes.length !== 1 ||
+      !["require", "verify-ca", "verify-full"].includes(sslModes[0] ?? "")
+    )
+      throw new Error(
+        `Invalid ${key}: production database URLs require exactly one sslmode=require or stronger`
+      );
+  }
   return result.data;
 };
 

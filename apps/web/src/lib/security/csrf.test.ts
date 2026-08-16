@@ -49,6 +49,14 @@ describe("CSRF double-submit cookie", () => {
     expect(response.cookies.getAll()).toEqual([]);
   });
 
+  it("uses the local cookie name for production standalone loopback checks", () => {
+    const request = new NextRequest("http://127.0.0.1:3000/simulator");
+    const response = applyCsrfCookie(request, NextResponse.next(), "production", NOW);
+
+    expect(response.cookies.get(LOCAL_CSRF_COOKIE_NAME)?.secure).toBeFalsy();
+    expect(response.cookies.get(PRODUCTION_CSRF_COOKIE_NAME)).toBeUndefined();
+  });
+
   it("does not rotate a token during a mutation request", () => {
     const request = new NextRequest("https://app.example.com/api/v1/watchlist", {
       headers: { cookie: `${PRODUCTION_CSRF_COOKIE_NAME}=${createCsrfToken()}` },

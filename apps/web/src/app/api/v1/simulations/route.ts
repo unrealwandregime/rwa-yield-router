@@ -1,62 +1,38 @@
 import { randomUUID } from "node:crypto";
-import { and, eq } from "drizzle-orm";
-import { assets, riskMethodologyVersions, routeSimulations } from "@rwa-yield-router/database";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import {
+  assets,
+  chains,
+  jurisdictions,
+  productRoutes,
+  riskMethodologyVersions,
+  routeSimulationAllocations,
+  routeSimulationCandidates,
+  routeSimulations
+} from "@rwa-yield-router/database";
 import { optimizePortfolio } from "@rwa-yield-router/routing-engine";
 import type { RouteCandidate } from "@rwa-yield-router/routing-engine";
 import type { NextRequest } from "next/server";
-import { z } from "zod";
-import { apiError, checkRateLimit, requestIdentity, validateBrowserMutation } from "@/lib/api";
+import {
+  apiError,
+  checkRateLimit,
+  JsonBodyError,
+  readBoundedJson,
+  requestIdentity,
+  validateBrowserMutation
+} from "@/lib/api";
 import { authorizeMutation, type AuthorizedContext } from "@/lib/authz";
 import { getLiveCatalog } from "@/lib/live-morpho";
 import { getEffectivePublicReadModel } from "@/lib/public-read-model";
+import { canonicalizeSimulationChainInputs } from "@/lib/simulation-chain-inputs";
 import { buildSimulationCandidates } from "@/lib/simulation-candidates";
+import {
+  buildAllocationPersistenceRows,
+  buildCandidatePersistenceRows
+} from "@/lib/simulation-persistence";
+import { simulationRequestSchema } from "@/lib/simulation-request";
 
-const requestSchema = z
-  .object({
-    advancedResearchMode: z.boolean().default(false),
-    capital: z.string(),
-    currentAsset: z.string().min(1).max(128),
-    currentChain: z.string().min(1).max(128),
-    holdingPeriodDays: z.string(),
-    incentivesAcceptable: z.boolean(),
-    investorClassification: z.enum([
-      "RETAIL",
-      "ACCREDITED",
-      "QUALIFIED",
-      "PROFESSIONAL",
-      "INSTITUTIONAL"
-    ]),
-    jurisdiction: z.string().min(2).max(3),
-    kycAcceptable: z.boolean(),
-    maximumChainExposure: z.string(),
-    maximumDefiExposure: z.string(),
-    maximumGoldExposure: z.string(),
-    maximumIssuerExposure: z.string(),
-    maximumProductAllocation: z.string(),
-    maximumProtocolExposure: z.string(),
-    maximumRwaExposure: z.string(),
-    minimumConfidence: z.enum([
-      "VERIFIED_OFFICIAL",
-      "ONCHAIN_DERIVED",
-      "DIRECT_API",
-      "MANUALLY_VERIFIED",
-      "THIRD_PARTY"
-    ]),
-    minimumImmediateLiquidity: z.string(),
-    minimumSevenDayLiquidity: z.string(),
-    minimumTwentyFourHourLiquidity: z.string(),
-    preferredChains: z.array(z.string().min(1).max(128)).max(20),
-    profile: z.enum([
-      "CAPITAL_PRESERVATION",
-      "CONSERVATIVE",
-      "BALANCED",
-      "YIELD_SEEKING",
-      "CUSTOM"
-    ]),
-    saveRequested: z.boolean().default(false),
-    name: z.string().trim().min(1).max(120).optional()
-  })
-  .strict();
+const MAX_SIMULATION_REQUEST_BYTES = 16_384;
 
 export async function POST(request: NextRequest) {
   const correlationId = randomUUID();
@@ -71,11 +47,21 @@ export async function POST(request: NextRequest) {
     return apiError(429, "RATE_LIMITED", "Simulation rate limit exceeded.", correlationId);
   let body: unknown;
   try {
-    body = await request.json();
-  } catch {
-    return apiError(400, "VALIDATION_ERROR", "Request body must be valid JSON.", correlationId);
+    body = await readBoundedJson(request, MAX_SIMULATION_REQUEST_BYTES);
+  } catch (error) {
+    const status = error instanceof JsonBodyError ? error.status : 400;
+    return apiError(
+      status,
+      "VALIDATION_ERROR",
+      status === 413
+        ? "Simulation request exceeds the permitted size."
+        : status === 415
+          ? "Content type must be application/json."
+          : "Request body must be valid JSON.",
+      correlationId
+    );
   }
-  const parsed = requestSchema.safeParse(body);
+  const parsed = simulationRequestSchema.safeParse(body);
   if (!parsed.success)
     return apiError(
       400,
@@ -113,6 +99,12 @@ export async function POST(request: NextRequest) {
       correlationId
     );
   }
+  const canonicalChains = canonicalizeSimulationChainInputs(
+    records,
+    candidates,
+    parsed.data.currentChain,
+    parsed.data.preferredChains
+  );
   const result = await optimizePortfolio({
     candidates,
     input: {
@@ -133,7 +125,7 @@ export async function POST(request: NextRequest) {
         minImmediateLiquidityPct: parsed.data.minimumImmediateLiquidity
       },
       currentAssetId: parsed.data.currentAsset,
-      currentChainId: parsed.data.currentChain,
+      currentChainId: canonicalChains.currentChainId,
       excludedChains: [],
       excludedIssuerIds: [],
       excludedProductIds: [],
@@ -148,31 +140,56 @@ export async function POST(request: NextRequest) {
       minimumAvailableLiquidityUsd: "0",
       minimumDataConfidence: parsed.data.minimumConfidence,
       preferredAssets: [],
-      preferredChains: parsed.data.preferredChains,
+      preferredChains: [...canonicalChains.preferredChainIds],
       profile: parsed.data.profile
     }
   });
+  const assumptions = [
+    ...(parsed.data.advancedResearchMode
+      ? [
+          "Conditional eligibility and unknown KYC status were allowed because advanced research mode was explicitly selected."
+        ]
+      : []),
+    ...(result.status === "FEASIBLE" && result.metrics.transactionCostStatus === "UNAVAILABLE"
+      ? [
+          "User-specific entry, exit, gas, and slippage costs are unavailable because no quote evidence is configured. This is a before-transaction-cost research scenario; after-cost net APY is unavailable."
+        ]
+      : [])
+  ];
+  const persistedResultSummary = { ...result, assumptions };
 
   let savedSimulationId: string | null = null;
   if (saveContext) {
     try {
       savedSimulationId = await saveContext.database.transaction(async (transaction) => {
-        const symbol = parsed.data.currentAsset.trim().toUpperCase();
-        let [asset] = await transaction
+        const [capitalAsset] = await transaction
           .select({ id: assets.id })
           .from(assets)
-          .where(and(eq(assets.symbol, symbol), eq(assets.lifecycleStatus, "ACTIVE")))
+          .where(
+            and(
+              eq(assets.symbol, "USD"),
+              eq(assets.assetType, "FIAT"),
+              eq(assets.lifecycleStatus, "ACTIVE"),
+              isNull(assets.archivedAt)
+            )
+          )
           .limit(1);
-        if (!asset) {
-          [asset] = await transaction
-            .insert(assets)
-            .values({
-              assetType: "SIMULATION_INPUT",
-              name: parsed.data.currentAsset.trim(),
-              symbol
-            })
-            .returning({ id: assets.id });
-        }
+        const [originChain] = await transaction
+          .select({ id: chains.id })
+          .from(chains)
+          .where(
+            and(
+              sql`lower(${chains.name}) = ${parsed.data.currentChain.toLowerCase()}`,
+              eq(chains.lifecycleStatus, "ACTIVE"),
+              isNull(chains.archivedAt)
+            )
+          )
+          .limit(1);
+        const [jurisdiction] = await transaction
+          .select({ id: jurisdictions.id })
+          .from(jurisdictions)
+          .where(eq(jurisdictions.isoCode, parsed.data.jurisdiction.toUpperCase()))
+          .limit(1);
         const [methodology] = await transaction
           .select({ id: riskMethodologyVersions.id })
           .from(riskMethodologyVersions)
@@ -183,7 +200,7 @@ export async function POST(request: NextRequest) {
             )
           )
           .limit(1);
-        if (!asset || !methodology)
+        if (!capitalAsset || !methodology)
           throw new Error("Canonical simulation reference data is unavailable");
         const feasible = result.status === "FEASIBLE";
         const [saved] = await transaction
@@ -193,7 +210,12 @@ export async function POST(request: NextRequest) {
             calculationVersion: result.calculationVersion,
             canonicalConstraints: {
               advancedResearchMode: parsed.data.advancedResearchMode,
+              currentAsset: parsed.data.currentAsset,
+              currentChain: parsed.data.currentChain,
+              currentChainId: canonicalChains.currentChainId,
               incentivesAcceptable: parsed.data.incentivesAcceptable,
+              investorClassification: parsed.data.investorClassification,
+              jurisdiction: parsed.data.jurisdiction.toUpperCase(),
               kycAcceptable: parsed.data.kycAcceptable,
               maximumChainExposure: parsed.data.maximumChainExposure,
               maximumDefiExposure: parsed.data.maximumDefiExposure,
@@ -206,25 +228,28 @@ export async function POST(request: NextRequest) {
               minimumImmediateLiquidity: parsed.data.minimumImmediateLiquidity,
               minimumSevenDayLiquidity: parsed.data.minimumSevenDayLiquidity,
               minimumTwentyFourHourLiquidity: parsed.data.minimumTwentyFourHourLiquidity,
+              preferredChainIds: canonicalChains.preferredChainIds,
               preferredChains: parsed.data.preferredChains
             },
             capitalAmount: parsed.data.capital,
-            capitalAssetId: asset.id,
+            capitalAssetId: capitalAsset.id,
             comparativeRiskAdjustedApy: feasible ? result.metrics.comparativeRiskAdjustedApy : null,
             completedAt: new Date(),
             dataConfidenceScore: feasible ? result.metrics.dataConfidenceScore : null,
             dataCutoff: new Date(result.dataTimestamp),
-            disclosureVersion: "analytical-disclosure-v1",
+            disclosureVersion: "analytical-disclosure-v2",
             grossBlendedApy: feasible ? result.metrics.grossBlendedApy : null,
             holdingPeriodDays: parsed.data.holdingPeriodDays,
             infeasibilityDiagnostics: result.status === "INFEASIBLE" ? result.diagnostics : null,
             investorClassification: parsed.data.investorClassification,
             isSaved: true,
+            jurisdictionId: jurisdiction?.id ?? null,
             methodologyVersionId: methodology.id,
             name: parsed.data.name ?? `Simulation ${new Date().toISOString().slice(0, 10)}`,
             netBlendedApy: feasible ? result.metrics.netBlendedApy : null,
-            resultSummary: result,
+            resultSummary: persistedResultSummary,
             riskProfile: parsed.data.profile,
+            originChainId: originChain?.id ?? null,
             solverVersion: result.solverVersion,
             status:
               result.status === "FEASIBLE"
@@ -237,6 +262,45 @@ export async function POST(request: NextRequest) {
           })
           .returning({ id: routeSimulations.id });
         if (!saved) throw new Error("Saved simulation invariant failed");
+        const routeReferences =
+          candidates.length === 0
+            ? []
+            : await transaction
+                .select({ id: productRoutes.id, slug: productRoutes.slug })
+                .from(productRoutes)
+                .where(
+                  and(
+                    inArray(
+                      productRoutes.slug,
+                      candidates.map((candidate) => candidate.routeId)
+                    ),
+                    eq(productRoutes.publicationStatus, "PUBLISHED"),
+                    eq(productRoutes.lifecycleStatus, "ACTIVE"),
+                    isNull(productRoutes.effectiveTo),
+                    isNull(productRoutes.archivedAt)
+                  )
+                );
+        const routeIdsBySlug = new Map(
+          routeReferences.map((reference) => [reference.slug, reference.id])
+        );
+        const candidateRows = buildCandidatePersistenceRows(
+          saved.id,
+          candidates,
+          result.excludedCandidates,
+          routeIdsBySlug
+        );
+        if (candidateRows.length > 0) {
+          await transaction.insert(routeSimulationCandidates).values(candidateRows);
+        }
+        const allocationRows = buildAllocationPersistenceRows(
+          saved.id,
+          parsed.data.capital,
+          result.allocations,
+          routeIdsBySlug
+        );
+        if (allocationRows.length > 0) {
+          await transaction.insert(routeSimulationAllocations).values(allocationRows);
+        }
         return saved.id;
       });
     } catch {
@@ -260,27 +324,31 @@ export async function POST(request: NextRequest) {
             rationale: allocation.rationaleCodes
               .map((code) => code.replaceAll("_", " ").toLowerCase())
               .join("; "),
-            riskAdjustedApy: allocation.comparativeRiskAdjustedApy,
+            comparativeRiskAdjustedApy: allocation.comparativeRiskAdjustedApy,
+            comparativeRiskAdjustedApyBeforeTransactionCosts:
+              allocation.comparativeRiskAdjustedApyBeforeTransactionCosts,
+            netApy: allocation.netApy,
+            netApyBeforeTransactionCosts: allocation.netApyBeforeTransactionCosts,
             riskScore: allocation.riskScore,
             routeName: record?.routeName ?? allocation.routeId,
-            routeSlug: record?.slug ?? allocation.routeId
+            routeSlug: record?.slug ?? allocation.routeId,
+            transactionCostStatus: allocation.transactionCostStatus
           };
         }),
-        assumptions: parsed.data.advancedResearchMode
-          ? [
-              "Conditional eligibility and unknown KYC status were allowed because advanced research mode was explicitly selected.",
-              "User transaction costs are unavailable without a configured quote provider and are modeled as zero; net route APY therefore remains before user transaction costs."
-            ]
-          : [],
+        assumptions,
+        comparativeRiskAdjustedApy: result.metrics.comparativeRiskAdjustedApy,
+        comparativeRiskAdjustedApyBeforeTransactionCosts:
+          result.metrics.comparativeRiskAdjustedApyBeforeTransactionCosts,
         dataTimestamp: result.dataTimestamp,
         grossBlendedApy: result.metrics.grossBlendedApy,
         immediateLiquidity: result.metrics.liquidity.immediatePct,
         methodologyVersion: result.methodologyVersion,
         netBlendedApy: result.metrics.netBlendedApy,
-        riskAdjustedApy: result.metrics.comparativeRiskAdjustedApy,
+        netBlendedApyBeforeTransactionCosts: result.metrics.netBlendedApyBeforeTransactionCosts,
         savedSimulationId,
         sevenDayLiquidity: result.metrics.liquidity.within7DaysPct,
         status: "FEASIBLE",
+        transactionCostStatus: result.metrics.transactionCostStatus,
         twentyFourHourLiquidity: result.metrics.liquidity.within24HoursPct,
         weightedRiskScore: result.metrics.weightedRiskScore
       },

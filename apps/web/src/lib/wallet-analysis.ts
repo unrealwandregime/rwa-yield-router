@@ -114,11 +114,14 @@ const uniqueSorted = (values: ReadonlyArray<string>): string[] =>
   [...new Set(values)].sort((left, right) => left.localeCompare(right));
 
 export const getSupportedWalletChains = (
-  environment: Readonly<Record<string, string | undefined>> = process.env
-): WalletChain[] =>
-  WALLET_CHAIN_VALUES.filter((chain) =>
-    chain === "ethereum" ? Boolean(environment.RPC_URL_ETHEREUM) : Boolean(environment.RPC_URL_BASE)
-  );
+  environment?: Readonly<Record<string, string | undefined>>
+): WalletChain[] => {
+  const rpcUrls =
+    environment === undefined
+      ? getServerConfig().rpcUrls
+      : { base: environment.RPC_URL_BASE, ethereum: environment.RPC_URL_ETHEREUM };
+  return WALLET_CHAIN_VALUES.filter((chain) => Boolean(rpcUrls[chain]));
+};
 
 export async function analyzeWallet(input: {
   readonly address: string;
@@ -201,3 +204,4 @@ export async function analyzeWallet(input: {
     unrecognizedCount: null
   };
 }
+import { getServerConfig } from "@rwa-yield-router/config";

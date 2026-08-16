@@ -1,11 +1,21 @@
 import "server-only";
 
-import { MORPHO_API_URL, MORPHO_PRODUCTION_ROUTES } from "@rwa-yield-router/data-adapters";
+import {
+  AdapterError,
+  CircuitBreaker,
+  CircuitOpenError,
+  createTokenBucketRateLimiter,
+  MORPHO_API_URL,
+  MORPHO_PRODUCTION_ROUTES,
+  safeFetchJson,
+  type HostResolver
+} from "@rwa-yield-router/data-adapters";
 import {
   calculateCompositeRisk,
   calculateRiskAdjustedApy,
   type RiskMethodology
 } from "@rwa-yield-router/risk-engine";
+import { getServerConfig } from "@rwa-yield-router/config";
 import Decimal from "decimal.js";
 import { z } from "zod";
 import type { CatalogMetricState, CatalogRecord } from "@/lib/catalog";
@@ -15,30 +25,40 @@ import {
 } from "@/lib/public-read-model";
 
 const decimalLike = z
-  .union([z.string(), z.number().finite()])
+  .union([z.string().max(128), z.number().finite()])
   .transform((value) => String(value))
   .refine((value) => /^-?\d+(?:\.\d+)?$/u.test(value), "Expected a plain decimal");
+
+const nonnegativeDecimalLike = decimalLike.refine(
+  (value) => new Decimal(value).gte(0),
+  "Expected a nonnegative decimal"
+);
 
 const morphoResponseSchema = z.object({
   data: z.object({
     vaults: z.object({
-      items: z.array(
-        z.object({
-          address: z.string().regex(/^0x[a-fA-F0-9]{40}$/u),
-          chain: z.object({ id: z.number().int().positive() }),
-          liquidity: z.object({ usd: decimalLike.nullable() }).nullable(),
-          state: z.object({
-            apy: decimalLike.nullable(),
-            fee: decimalLike.nullable(),
-            netApy: decimalLike.nullable(),
-            netApyExcludingRewards: decimalLike.nullable(),
-            totalAssetsUsd: decimalLike.nullable()
+      items: z
+        .array(
+          z.object({
+            address: z.string().regex(/^0x[a-fA-F0-9]{40}$/u),
+            chain: z.object({ id: z.number().int().positive() }),
+            liquidity: z.object({ usd: nonnegativeDecimalLike.nullable() }).nullable(),
+            state: z.object({
+              apy: decimalLike.nullable(),
+              fee: decimalLike.nullable(),
+              netApy: decimalLike.nullable(),
+              netApyExcludingRewards: decimalLike.nullable(),
+              totalAssetsUsd: nonnegativeDecimalLike.nullable()
+            })
           })
-        })
-      )
+        )
+        .max(1_000)
     })
   }),
-  errors: z.array(z.object({ message: z.string() })).optional()
+  errors: z
+    .array(z.object({ message: z.string().max(500) }))
+    .max(20)
+    .optional()
 });
 
 const MORPHO_QUERY = `query ProductionVaults {
@@ -64,8 +84,13 @@ export interface LiveMorphoEvidence {
   readonly availableLiquidityUsd: string;
   readonly immediateLiquidityPct: string;
   readonly incentiveApy: string;
-  readonly sourceObservationIds: readonly [string, string, string];
-  readonly dataTimestamp: string;
+  readonly netApyClassification: "PROVIDER_REPORTED_BEFORE_USER_TRANSACTION_COSTS";
+  readonly riskEvidenceCoveragePct: string | null;
+  readonly riskStatus: "ESTIMATED" | "UNAVAILABLE";
+  readonly riskUsesUnknownProxy: boolean;
+  readonly unavailableRiskFactors: readonly string[];
+  readonly unknownRiskProxy: string | null;
+  readonly fetchedAt: string;
   readonly methodologyVersion: string | null;
 }
 
@@ -74,6 +99,7 @@ export type OfficialProviderErrorCategory =
   | "HTTP_ERROR"
   | "INVALID_RESPONSE"
   | "NETWORK_ERROR"
+  | "PROVIDER_FETCH_DISABLED"
   | "PROVIDER_REJECTED"
   | "TIMEOUT";
 
@@ -113,6 +139,28 @@ class OfficialProviderError extends Error {
 let liveCache: LiveCache | undefined;
 let providerFailureCache: ProviderFailureCache | undefined;
 let lastProviderStatus: OfficialProviderStatus | undefined;
+let providerRequestInFlight:
+  | Promise<
+      Readonly<{
+        fetchedAt: string;
+        response: z.infer<typeof morphoResponseSchema>;
+      }>
+    >
+  | undefined;
+
+const providerRateLimiter = createTokenBucketRateLimiter({
+  capacity: 4,
+  refillTokensPerSecond: 0.2
+});
+const providerCircuitBreaker = new CircuitBreaker({
+  failureThreshold: 3,
+  recoveryTimeoutMs: 60_000
+});
+
+export interface LiveMorphoFetchDependencies {
+  readonly fetchImplementation?: typeof fetch | undefined;
+  readonly resolver?: HostResolver | undefined;
+}
 
 const percentagePoints = (ratio: string): string =>
   new Decimal(ratio).mul(100).toDecimalPlaces(12).toString();
@@ -127,6 +175,19 @@ const boundedLiquidityPercent = (liquidity: string, tvl: string): string => {
 
 const classifyProviderFailure = (error: unknown): OfficialProviderErrorCategory => {
   if (error instanceof OfficialProviderError) return error.category;
+  if (error instanceof CircuitOpenError) return "NETWORK_ERROR";
+  if (error instanceof AdapterError) {
+    if (error.code === "TIMEOUT") return "TIMEOUT";
+    if (error.code === "UPSTREAM_REJECTED") return "HTTP_ERROR";
+    if (
+      error.code === "MALFORMED_RESPONSE" ||
+      error.code === "RESPONSE_TOO_LARGE" ||
+      error.code === "UNSUPPORTED_CONTENT_TYPE" ||
+      error.code === "REDIRECT_BLOCKED"
+    )
+      return "INVALID_RESPONSE";
+    return "NETWORK_ERROR";
+  }
   if (error instanceof DOMException && error.name === "TimeoutError") return "TIMEOUT";
   if (error instanceof z.ZodError || error instanceof SyntaxError) return "INVALID_RESPONSE";
   return "NETWORK_ERROR";
@@ -145,7 +206,8 @@ const cachedProviderFailure = (
 };
 
 export async function fetchLiveMorphoEvidence(
-  methodology: RiskMethodology | null = null
+  methodology: RiskMethodology | null = null,
+  dependencies: LiveMorphoFetchDependencies = {}
 ): Promise<ReadonlyArray<LiveMorphoEvidence>> {
   const now = Date.now();
   const methodologyVersion = methodology?.semanticVersion ?? null;
@@ -164,30 +226,46 @@ export async function fetchLiveMorphoEvidence(
     throw new OfficialProviderError(providerFailureCache.category);
   }
 
-  const response = await fetch(MORPHO_API_URL, {
-    body: JSON.stringify({ query: MORPHO_QUERY }),
-    cache: "no-store",
-    headers: { "content-type": "application/json" },
-    method: "POST",
-    redirect: "error",
-    signal: AbortSignal.timeout(3_000)
-  }).catch((error: unknown) => {
+  const endpoint = new URL(MORPHO_API_URL);
+  providerRequestInFlight ??= providerCircuitBreaker
+    .execute(async () => ({
+      fetchedAt: new Date().toISOString(),
+      response: await safeFetchJson({
+        init: {
+          body: JSON.stringify({ query: MORPHO_QUERY }),
+          cache: "no-store",
+          headers: { Accept: "application/json", "Content-Type": "application/json" },
+          method: "POST"
+        },
+        policy: {
+          allowedContentTypes: new Set(["application/json"]),
+          allowedHosts: new Set([endpoint.hostname]),
+          fetchImplementation: dependencies.fetchImplementation,
+          maxCompressionRatio: 20,
+          maxRedirects: 0,
+          maxResponseBytes: 1_000_000,
+          rateLimiter: providerRateLimiter,
+          resolver: dependencies.resolver,
+          timeoutMs: 3_000
+        },
+        schema: morphoResponseSchema,
+        url: endpoint.toString()
+      })
+    }))
+    .finally(() => {
+      providerRequestInFlight = undefined;
+    });
+  const requestResult = await providerRequestInFlight.catch((error: unknown) => {
     throw cachedProviderFailure(classifyProviderFailure(error), methodologyVersion);
   });
-  if (!response.ok) throw cachedProviderFailure("HTTP_ERROR", methodologyVersion);
-
-  const parsed = morphoResponseSchema.safeParse(await response.json().catch(() => null));
-  if (!parsed.success) throw cachedProviderFailure("INVALID_RESPONSE", methodologyVersion);
-  if (parsed.data.errors && parsed.data.errors.length > 0)
+  const parsed = requestResult.response;
+  if (parsed.errors && parsed.errors.length > 0)
     throw cachedProviderFailure("PROVIDER_REJECTED", methodologyVersion);
 
   const byIdentity = new Map(
-    parsed.data.data.vaults.items.map((item) => [
-      `${item.chain.id}:${item.address.toLowerCase()}`,
-      item
-    ])
+    parsed.data.vaults.items.map((item) => [`${item.chain.id}:${item.address.toLowerCase()}`, item])
   );
-  const fetchedAt = new Date().toISOString();
+  const fetchedAt = requestResult.fetchedAt;
   const evidence: LiveMorphoEvidence[] = [];
 
   for (const identity of MORPHO_PRODUCTION_ROUTES) {
@@ -224,7 +302,7 @@ export async function fetchLiveMorphoEvidence(
           ? null
           : riskAdjusted.comparativeRiskAdjustedApy,
       contractAddress: identity.contractAddress,
-      dataTimestamp: fetchedAt,
+      fetchedAt,
       grossApy,
       immediateLiquidityPct: boundedLiquidityPercent(liquidity, tvl),
       incentiveApy: Decimal.max(0, new Decimal(netRatio).minus(netExcludingRewards).mul(100))
@@ -232,9 +310,14 @@ export async function fetchLiveMorphoEvidence(
         .toString(),
       methodologyVersion,
       netApy,
+      netApyClassification: "PROVIDER_REPORTED_BEFORE_USER_TRANSACTION_COSTS",
+      riskEvidenceCoveragePct: compositeRisk?.evidenceCoveragePct ?? null,
       riskScore: compositeRisk?.score ?? null,
+      riskStatus: compositeRisk === null ? "UNAVAILABLE" : "ESTIMATED",
+      riskUsesUnknownProxy: compositeRisk?.status === "PROVISIONAL",
       routeSlug: identity.routeSlug,
-      sourceObservationIds: identity.observationIds
+      unavailableRiskFactors: compositeRisk?.unavailableFactors ?? [],
+      unknownRiskProxy: methodology?.unknownRiskProxy ?? null
     });
   }
 
@@ -247,6 +330,18 @@ const currentMetricState = (at: string): CatalogMetricState => ({
   confidence: "DIRECT_API",
   observedAt: at,
   status: "CURRENT"
+});
+
+const estimatedRiskMetricState = (at: string): CatalogMetricState => ({
+  confidence: "ESTIMATED",
+  observedAt: at,
+  status: "ESTIMATED"
+});
+
+const unavailableRiskMetricState = (at: string): CatalogMetricState => ({
+  confidence: "UNAVAILABLE",
+  observedAt: at,
+  status: "UNAVAILABLE"
 });
 
 const staleMetricState = (state: CatalogMetricState): CatalogMetricState =>
@@ -284,27 +379,17 @@ const overlayLiveEvidence = (
     if (!live || record.publicationStatus !== "PUBLISHED") return record;
     const persisted = model.persistedEvidenceBySlug.get(record.slug);
     const persistedYieldCurrent = persisted?.yieldState.status === "CURRENT";
-    const persistedAumCurrent = persisted?.aumState.status === "CURRENT";
-    const persistedLiquidityCurrent = persisted?.liquidityState.status === "CURRENT";
-    const persistedRiskCurrent =
-      persisted?.riskState.status === "CURRENT" &&
-      persisted.methodologyVersion === live.methodologyVersion;
-    const yieldUsesLive =
+    const usesRuntimeFallback =
       !persistedYieldCurrent || record.grossApy === null || record.netApy === null;
-    const aumUsesLive = !persistedAumCurrent || record.aumTvlUsd === null;
-    const liquidityUsesLive = !persistedLiquidityCurrent || record.liquidityUsd === null;
-    const riskUsesLive =
-      !persistedRiskCurrent || record.riskScore === null || record.riskAdjustedApy === null;
+    if (!usesRuntimeFallback) return record;
     const metricStatus = {
-      aumTvl: aumUsesLive ? currentMetricState(live.dataTimestamp) : record.metricStatus.aumTvl,
-      liquidity: liquidityUsesLive
-        ? currentMetricState(live.dataTimestamp)
-        : record.metricStatus.liquidity,
+      aumTvl: currentMetricState(live.fetchedAt),
+      liquidity: currentMetricState(live.fetchedAt),
       risk:
-        riskUsesLive && live.riskScore !== null
-          ? currentMetricState(live.dataTimestamp)
-          : record.metricStatus.risk,
-      yield: yieldUsesLive ? currentMetricState(live.dataTimestamp) : record.metricStatus.yield
+        live.riskScore === null
+          ? unavailableRiskMetricState(live.fetchedAt)
+          : estimatedRiskMetricState(live.fetchedAt),
+      yield: currentMetricState(live.fetchedAt)
     } satisfies CatalogRecord["metricStatus"];
     const observedAt =
       Object.values(metricStatus)
@@ -312,34 +397,47 @@ const overlayLiveEvidence = (
         .sort((left, right) => right.localeCompare(left))[0] ?? record.observedAt;
     return {
       ...record,
-      aumTvlUsd: aumUsesLive ? live.aumOrTvlUsd : record.aumTvlUsd,
-      confidence: yieldUsesLive ? "DIRECT_API" : record.confidence,
-      grossApy: yieldUsesLive ? live.grossApy : record.grossApy,
-      liquidityUsd: liquidityUsesLive ? live.availableLiquidityUsd : record.liquidityUsd,
+      aumTvlUsd: live.aumOrTvlUsd,
+      confidence: "DIRECT_API",
+      grossApy: live.grossApy,
+      liquidityUsd: live.availableLiquidityUsd,
       methodologyVersion: live.methodologyVersion,
       metricStatus,
-      netApy: yieldUsesLive ? live.netApy : record.netApy,
+      netApy: live.netApy,
       observedAt,
-      riskAdjustedApy: riskUsesLive ? live.comparativeRiskAdjustedApy : record.riskAdjustedApy,
-      riskScore: riskUsesLive ? live.riskScore : record.riskScore,
-      source: yieldUsesLive
-        ? { name: "Morpho official GraphQL API", type: "OFFICIAL_API", url: MORPHO_API_URL }
-        : record.source,
-      sourceObservationIds: [
-        ...new Set([...record.sourceObservationIds, ...live.sourceObservationIds])
-      ],
+      riskAdjustedApy: live.comparativeRiskAdjustedApy,
+      riskScore: live.riskScore,
+      source: { name: "Morpho official GraphQL API", type: "OFFICIAL_API", url: MORPHO_API_URL },
+      // A record-level list cannot truthfully distinguish persisted fields
+      // from request-time replacements. Clear it instead of implying that old
+      // UUIDs support the displayed live values.
+      sourceObservationIds: [],
       warnings: [
         ...record.warnings.filter(
-          (warning) => !warning.startsWith("Yield is ") && !warning.startsWith("AUM/TVL is ")
+          (warning) =>
+            !warning.startsWith("Yield is ") &&
+            !warning.startsWith("AUM/TVL is ") &&
+            !warning.startsWith("Request-time Morpho fallback values") &&
+            !warning.startsWith("Morpho provider-reported net APY") &&
+            !warning.startsWith("Comparative risk is ESTIMATED") &&
+            !warning.startsWith("Comparative risk is unavailable")
         ),
         "Official Morpho evidence is a bounded runtime fallback when persisted worker observations are missing or stale.",
-        ...(live.riskScore === null
+        "Request-time Morpho fallback values are not assigned database observation IDs and are excluded from optimizer inputs unless matching worker observations are persisted.",
+        ...(live.netApyClassification === "PROVIDER_REPORTED_BEFORE_USER_TRANSACTION_COSTS"
+          ? [
+              "Morpho provider-reported net APY includes the provider's vault-fee and reward treatment but remains before user-specific entry, exit, gas, and slippage costs."
+            ]
+          : []),
+        ...(live.riskStatus === "UNAVAILABLE"
           ? [
               "Comparative risk is unavailable because no compatible published methodology is effective."
             ]
-          : [
-              "Comparative risk is provisional because unavailable factors use the published conservative proxy."
-            ])
+          : live.riskStatus === "ESTIMATED"
+            ? [
+                `Comparative risk is ESTIMATED with ${live.riskEvidenceCoveragePct ?? "0"}% evidence coverage: ${live.unavailableRiskFactors.length} weighted factors are unavailable and the published ${live.unknownRiskProxy ?? "unknown"} unknown-risk proxy is used for comparative ranking.`
+              ]
+            : [])
       ]
     };
   });
@@ -358,7 +456,7 @@ const statusFromEvidence = (
   checkedAt,
   errorCategory: null,
   latestObservedAt:
-    evidence.map((item) => item.dataTimestamp).sort((a, b) => b.localeCompare(a))[0] ?? null,
+    evidence.map((item) => item.fetchedAt).sort((a, b) => b.localeCompare(a))[0] ?? null,
   providerCode: "MORPHO_OFFICIAL_GRAPHQL",
   routesAvailable: evidence.length,
   routesExpected: MORPHO_PRODUCTION_ROUTES.length,
@@ -374,6 +472,19 @@ const statusFromEvidence = (
 export async function getLiveCatalog(): Promise<CatalogRecord[]> {
   const model = await getEffectivePublicReadModel();
   const checkedAt = new Date().toISOString();
+  if (!getServerConfig().requestTimeProviderFetchEnabled) {
+    lastProviderStatus = {
+      checkedAt,
+      errorCategory: "PROVIDER_FETCH_DISABLED",
+      latestObservedAt: null,
+      providerCode: "MORPHO_OFFICIAL_GRAPHQL",
+      routesAvailable: 0,
+      routesExpected: MORPHO_PRODUCTION_ROUTES.length,
+      routesStale: countStaleRoutes(model.catalog),
+      state: "UNAVAILABLE"
+    };
+    return [...model.catalog];
+  }
   if (model.databaseState === "UNAVAILABLE") {
     lastProviderStatus = {
       checkedAt,

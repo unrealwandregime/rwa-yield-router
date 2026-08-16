@@ -7,7 +7,7 @@ It never takes custody, requests approvals or signing, constructs executable tra
 ## Prerequisites
 
 - Node.js 24.17.0 LTS
-- pnpm 11.12.0
+- pnpm 11.14.0
 - PostgreSQL 18 and Redis 8, or Docker with Compose
 
 ## Local setup
@@ -60,7 +60,7 @@ docker build -f apps/web/Dockerfile \
 docker build -f apps/worker/Dockerfile -t rwa-yield-router-worker:local .
 ```
 
-The web image starts `node apps/web/server.js` on port 3000. The worker image starts `node dist/main.js` on port 3001 and requires `DATABASE_URL` plus `REDIS_URL`. Both images run as the unprivileged `node` user and expose dependency-aware `/health/ready` checks. Supply runtime configuration through the deployment platform; never copy `.env` into an image.
+The web image starts `node apps/web/server.js` on port 3000. The worker image starts `node dist/main.js` on port 3001 and requires `DATABASE_URL` plus `REDIS_URL`. A zero-budget web preview may omit Redis and fall back to bounded per-process rate limiting; true production fails closed without Redis. Both images run as the unprivileged `node` user and expose dependency-aware `/health/ready` checks. Supply runtime configuration through the deployment platform; never copy `.env` into an image.
 
 The worker image also contains the compiled database migration and bootstrap tools used by one-off release jobs. See [DEPLOYMENT.md](./DEPLOYMENT.md) for the exact commands and required ordering.
 

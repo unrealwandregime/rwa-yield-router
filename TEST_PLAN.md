@@ -34,7 +34,7 @@ Tests must not require the public internet, production credentials, or wall-cloc
 
 - Unit: no database or network.
 - Integration: a fresh isolated PostgreSQL schema/database and Redis namespace per worker.
-- E2E: production build with isolated database, Redis, fake auth transport, console email, Telegram stub, and deterministic provider stub.
+- E2E: production build with isolated database, Redis, fake auth transport, disabled notification delivery, and request-time provider fetching explicitly disabled so tests never use the public internet.
 - Staging: production topology and a reviewed non-production dataset.
 - Production: verified records only; smoke tests are read-only except controlled creation/deletion of marked canary account records and admin drafts.
 
@@ -108,6 +108,7 @@ Cover R-RSK-001 through R-RSK-006:
 - each penalty component and full Comparative risk-adjusted APY;
 - non-applicable factor versus missing applicable evidence;
 - methodology draft/publish immutability and historical-version replay;
+- deterministic effective-methodology selection, overlapping-interval rejection, relational weight validation, and unsupported calculation-version rejection;
 - extreme, negative, and incomplete net APY inputs.
 
 ### 5.4 Routing engine
@@ -140,6 +141,7 @@ Cover:
 - source precedence, freshness, metric fitness, fallback, conflicting observations, and tie-breaking;
 - missing data never becomes zero;
 - stale transitions at each metric policy boundary;
+- risk-factor evidence freshness at, before, and after each source-policy boundary, including proof that a new composite timestamp cannot refresh stale evidence;
 - observation and job idempotency;
 - import duplicate detection, review defaults, source validation, date windows, and CSV formula neutralization;
 - alert threshold edges, change windows, event deduplication, cooldown, timezone and daylight-saving behavior;
@@ -156,6 +158,7 @@ Each test starts with migrated empty storage and cleans its isolated namespace.
 - migrate the latest released schema to head with representative data;
 - verify foreign keys, checks, unique keys, NUMERIC precision, UTC timestamps, lifecycle, and audit immutability;
 - run seed/import twice and prove idempotency;
+- compare the latest catalog payload hash, reject same-payload entity drift, preserve the append-only import audit, and fail closed on an unreviewed external-ID or slug-set change;
 - prove production seed rejects fixture markers, missing sources, expired verification, and duplicates;
 - verify important dashboard, screener, detail, alert, and stale-admin query plans use intended indexes.
 
@@ -168,7 +171,24 @@ Each test starts with migrated empty storage and cleans its isolated namespace.
 - retries, jitter bounds, circuit open/half-open/close, provider concurrency, lock contention, duplicate delivery, crash/restart, and dead letter;
 - raw observation remains while selected snapshot changes;
 - provider outage preserves last valid value and marks it stale;
-- source provenance survives historical rollup and derived risk result.
+- source provenance survives historical rollup and derived risk result;
+- both historical-yield API forms return each point's selected snapshot, actual source observation,
+  canonical source, confidence/status layers, and timestamps; two points selected from different
+  sources must never inherit one current route-level source.
+- daily rollups ignore the open UTC day, select one deterministic closing available snapshot per
+  route/day, remain unchanged on duplicate delivery, and replace the selected close only after a
+  newly admitted correction; cutoff timestamps exclude later evidence, stable source/provenance
+  keys break exact-time ties, capacity overflow writes nothing, and every copied field must equal
+  the referenced immutable snapshot;
+- ingestion completion atomically persists job counts and adapter health; final failure persists a
+  redacted durable dead-letter record with matching retry/dead-letter counts;
+- observation and typed-snapshot persistence rolls back together on either write failure; a retry of
+  a duplicate observation reconciles a missing typed snapshot and reports stale evidence as stale;
+- alert-event, delivery-outbox, and rule-state writes commit atomically; retrying an existing
+  deduplicated event reconciles missing destination deliveries without duplicates;
+- a risk recalculation with no admissible factor evidence persists `UNAVAILABLE` with a null score;
+  partial proxy-based scores require at least one positively weighted sourced factor and remain
+  explicitly provisional.
 
 ### 6.3 Auth, authorization, and admin
 
@@ -183,9 +203,17 @@ Each test starts with migrated empty storage and cleans its isolated namespace.
 ### 6.4 API, simulation, and notifications
 
 - OpenAPI matches live request/response schemas;
+- standard simulations exclude candidates with unknown transaction costs; explicit advanced research preserves after-cost net metrics as unavailable and labels separate before-cost metrics;
 - cursor pagination has no gaps or duplicates under stable snapshot semantics;
 - validation, bounded filters, stable errors, correlation IDs, ETags, cache invalidation, and public-field allowlists;
-- saved simulations retain immutable calculation inputs and ownership;
+- saved simulations retain immutable calculation inputs and ownership; every candidate, exclusion,
+  source-observation identifier, and exact decimal allocation is persisted against the current
+  canonical route identifier and can be reopened as an analytical snapshot;
+- saved comparisons enforce two to five unique current route targets, preserve requested order,
+  rebuild public route-slug URLs, and scope list, update, and archive operations to the authenticated
+  owner;
+- saved screener views reject unknown filters, sort keys, and duplicate or unknown columns, and
+  scope list, update, and archive operations to the authenticated owner;
 - alert event-to-delivery transitions, provider retry, permanent failure, deduplication, and in-app persistence;
 - webhook signature, timestamp/replay, and malformed-body rejection;
 - safe CSV and report generation under row, size, and URL limits.
@@ -238,8 +266,9 @@ Release target: no automated serious or critical accessibility violation and no 
 - no critical vulnerability; no high vulnerability remains where a safe fix exists;
 - manual review of session, role, object authorization, admin endpoints, provider fetch, redirects, webhooks, queues, exports, logs, and client bundles;
 - injection tests for SQL/filter builders, XSS/provider text, CSV formulas, headers, redirects, and contract/source URLs;
-- CSRF/origin tests for state changes; session fixation and brute-force/rate-limit tests;
+- CSRF/origin and authentication-redirect tests for state changes, including a public HTTPS origin behind an internal HTTP reverse proxy; session fixation and brute-force/rate-limit tests;
 - SSRF tests including DNS/redirect rebinding defenses and response limits;
+- every JSON mutation rejects unsupported content types and buffers no more than its documented application limit, including chunked bodies without `Content-Length`;
 - queue poisoning, duplicate/replay, oversized payload, and unknown-job tests;
 - error and structured-log inspection for secrets, tokens, personal data, and unsafe raw payloads;
 - verify secure production cookies, CSP, headers, robots exclusions, and private-page cache controls.
@@ -248,7 +277,7 @@ Security findings record severity, evidence, owner, fix, and retest. Critical fi
 
 ## 10. Performance and resilience gates
 
-Test with at least 60 published products/routes and representative history, plus a scale dataset large enough to exercise pagination and indexes.
+Run performance tests with an isolated scale fixture of at least 60 routes and representative history, plus enough additional data to exercise pagination and indexes. Scale-fixture size is not publication evidence. Release evidence separately reports researched, admitted, and gated production records per category.
 
 Initial production budgets:
 
@@ -269,6 +298,9 @@ Budgets may change only with measured evidence and an updated requirement or dec
 Before publication, validate:
 
 - all six categories have real, current, source-attributed coverage;
+- researched, admitted, and gated counts are reported separately for every category; a 60-record research bundle must never be described as 60 published routes;
+- every category has at least one admitted record before `releaseStatus` can be `ready`, without reclassifying gated candidates to meet the gate;
+- a configured database passes migrations and contains a current production-catalog import whose researched, admitted, and gated totals match the validated bundle;
 - each product/route has a verification date and correct lifecycle;
 - official source URLs, verified contracts, chain, issuer/protocol, access, redemption, and yield-source classification;
 - no assumed global retail eligibility;

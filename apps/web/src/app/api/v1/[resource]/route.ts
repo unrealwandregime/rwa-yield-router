@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { type NextRequest } from "next/server";
+import { z } from "zod";
 import { CATEGORY_META } from "@/lib/constants";
+import { latestHistorySourceTimestamp, serializeYieldHistoryPoint } from "@/lib/history-contract";
+import { getYieldHistory } from "@/lib/history";
 import { getLiveCatalog } from "@/lib/live-morpho";
 import { getEffectiveMethodology } from "@/lib/public-read-model";
 import {
@@ -15,9 +18,28 @@ import {
 
 type RouteContext = { params: Promise<{ resource: string }> };
 
+const PUBLIC_READ_RATE_LIMIT_PER_MINUTE = 600;
+
+const routeSlugSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(160)
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u);
+
+const comparisonRoutesSchema = z
+  .array(routeSlugSchema)
+  .min(2)
+  .max(5)
+  .refine((routes) => new Set(routes).size === routes.length, "Routes must be unique.");
+
 export async function GET(request: NextRequest, context: RouteContext) {
   const correlationId = randomUUID();
-  const rate = await checkRateLimit(`public:${requestIdentity(request.headers)}`, 120, 60_000);
+  const rate = await checkRateLimit(
+    `public:${requestIdentity(request.headers)}`,
+    PUBLIC_READ_RATE_LIMIT_PER_MINUTE,
+    60_000
+  );
   if (!rate.allowed)
     return apiError(429, "RATE_LIMITED", "Public API rate limit exceeded.", correlationId);
   const { resource } = await context.params;
@@ -39,6 +61,9 @@ export async function GET(request: NextRequest, context: RouteContext) {
       .map((record) => record.observedAt)
       .filter((value): value is string => value !== null)
       .sort((a, b) => b.localeCompare(a))[0] ?? null;
+  let dataTimestamp = observedAt;
+  let sourceTimestamp =
+    records.map((record) => record.verifiedAt).sort((a, b) => b.localeCompare(a))[0] ?? null;
   let data: unknown[];
 
   switch (resource) {
@@ -74,6 +99,65 @@ export async function GET(request: NextRequest, context: RouteContext) {
         status: record.metricStatus.yield.status
       }));
       break;
+    case "historical-yield": {
+      const parsedRoute = routeSlugSchema.safeParse(request.nextUrl.searchParams.get("route"));
+      if (!parsedRoute.success)
+        return apiError(
+          400,
+          "VALIDATION_ERROR",
+          "A valid route slug is required for historical yield.",
+          correlationId,
+          parsedRoute.error.flatten()
+        );
+      const route = records.find((record) => record.slug === parsedRoute.data);
+      if (!route) return apiError(404, "NOT_FOUND", "Sourced route not found.", correlationId);
+      const history = await getYieldHistory(route.slug);
+      data = history.map((point) => serializeYieldHistoryPoint(point, route.slug));
+      dataTimestamp = history.at(-1)?.at ?? null;
+      sourceTimestamp = latestHistorySourceTimestamp(history);
+      break;
+    }
+    case "comparison": {
+      const parsedRoutes = comparisonRoutesSchema.safeParse(
+        request.nextUrl.searchParams
+          .getAll("routes")
+          .flatMap((value) => value.split(","))
+          .map((value) => value.trim())
+          .filter(Boolean)
+      );
+      if (!parsedRoutes.success)
+        return apiError(
+          400,
+          "VALIDATION_ERROR",
+          "Comparison requires two to five unique route slugs.",
+          correlationId,
+          parsedRoutes.error.flatten()
+        );
+      const bySlug = new Map(records.map((record) => [record.slug, record]));
+      const missing = parsedRoutes.data.filter((slug) => !bySlug.has(slug));
+      if (missing.length > 0)
+        return apiError(
+          404,
+          "NOT_FOUND",
+          "One or more comparison routes were not found.",
+          correlationId,
+          { missing }
+        );
+      const comparisonRecords = parsedRoutes.data.flatMap((slug) => {
+        const record = bySlug.get(slug);
+        return record === undefined ? [] : [record];
+      });
+      data = comparisonRecords;
+      dataTimestamp =
+        comparisonRecords
+          .flatMap((record) => (record.observedAt === null ? [] : [record.observedAt]))
+          .sort((a, b) => b.localeCompare(a))[0] ?? null;
+      sourceTimestamp =
+        comparisonRecords
+          .map((record) => record.verifiedAt)
+          .sort((a, b) => b.localeCompare(a))[0] ?? null;
+      break;
+    }
     case "risk":
       data = records.map((record) => ({
         confidence: record.confidence,
@@ -164,10 +248,9 @@ export async function GET(request: NextRequest, context: RouteContext) {
     meta: {
       correlationId,
       count: page.length,
-      dataTimestamp: observedAt,
+      dataTimestamp,
       nextCursor: nextOffset < data.length ? encodeCursor(nextOffset) : null,
-      sourceTimestamp:
-        records.map((record) => record.verifiedAt).sort((a, b) => b.localeCompare(a))[0] ?? null,
+      sourceTimestamp,
       total: data.length
     }
   });

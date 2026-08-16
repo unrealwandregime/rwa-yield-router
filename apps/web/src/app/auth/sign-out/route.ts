@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { validateBrowserMutation } from "@/lib/api";
+import { resolveApplicationUrl, validateBrowserMutation } from "@/lib/api";
 import { createClient } from "@/lib/supabase/server";
 
 export async function POST(request: NextRequest) {
@@ -10,5 +10,5 @@ export async function POST(request: NextRequest) {
     );
   const client = await createClient();
   if (client) await client.auth.signOut({ scope: "local" });
-  return NextResponse.redirect(new URL("/", request.url), 303);
+  return NextResponse.redirect(new URL("/", resolveApplicationUrl(request.url)), 303);
 }

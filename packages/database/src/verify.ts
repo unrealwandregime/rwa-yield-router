@@ -30,6 +30,7 @@ const requiredTables = [
   "source_registry",
   "source_observations",
   "yield_snapshots",
+  "yield_history_rollups",
   "apy_components",
   "price_snapshots",
   "nav_snapshots",
@@ -73,6 +74,18 @@ const requiredTables = [
   "data_deletion_receipts",
   "catalog_import_batches",
   "catalog_import_records"
+] as const;
+
+const requiredAppendOnlyTriggers = [
+  "prevent_catalog_import_batches_mutation",
+  "prevent_catalog_import_records_mutation"
+] as const;
+
+const requiredRollupConstraints = [
+  "yield_history_rollups_bucket_alignment",
+  "yield_history_rollups_snapshot_route_fk",
+  "yield_history_rollups_time_order",
+  "yield_snapshots_id_route_unique"
 ] as const;
 
 interface NamedRow {
@@ -141,6 +154,46 @@ export const verifyDatabase = async (database: Database): Promise<DatabaseVerifi
   `;
   if ((appendOnlyTriggers[0]?.count ?? 0) < 3) {
     issues.push("Append-only mutation guards are missing");
+  }
+  const appendOnlyTriggerRows = await database.$client<NamedRow[]>`
+    select tgname as name
+    from pg_trigger
+    where not tgisinternal
+      and tgname in (
+        'prevent_catalog_import_batches_mutation',
+        'prevent_catalog_import_records_mutation'
+      )
+  `;
+  const appendOnlyTriggerNames = new Set(appendOnlyTriggerRows.map((row) => row.name));
+  for (const triggerName of requiredAppendOnlyTriggers) {
+    if (!appendOnlyTriggerNames.has(triggerName)) {
+      issues.push(`Missing append-only trigger: ${triggerName}`);
+    }
+  }
+  const rollupConstraintRows = await database.$client<NamedRow[]>`
+    select conname as name
+    from pg_constraint
+    where conname in (
+      'yield_history_rollups_bucket_alignment',
+      'yield_history_rollups_snapshot_route_fk',
+      'yield_history_rollups_time_order',
+      'yield_snapshots_id_route_unique'
+    )
+  `;
+  const rollupConstraintNames = new Set(rollupConstraintRows.map((row) => row.name));
+  for (const constraintName of requiredRollupConstraints) {
+    if (!rollupConstraintNames.has(constraintName)) {
+      issues.push(`Missing rollup integrity constraint: ${constraintName}`);
+    }
+  }
+  const rollupTriggerRows = await database.$client<NamedRow[]>`
+    select tgname as name
+    from pg_trigger
+    where not tgisinternal
+      and tgname = 'validate_yield_history_rollup_snapshot_fields'
+  `;
+  if (rollupTriggerRows.length !== 1) {
+    issues.push("Missing rollup source-snapshot consistency trigger");
   }
 
   return {

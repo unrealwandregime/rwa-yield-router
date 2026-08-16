@@ -111,7 +111,12 @@ export default async function MethodologyPage() {
             </p>
           </div>
         </div>
-        <div className="table-wrap">
+        <div
+          aria-label="Risk factor weights by product category"
+          className="table-wrap"
+          role="region"
+          tabIndex={0}
+        >
           <table className="data-table">
             <caption className="sr-only">Risk factor weights by product category</caption>
             <thead>

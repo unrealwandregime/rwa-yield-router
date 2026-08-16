@@ -218,7 +218,8 @@ const transactionCostModelSchema = z
   .object({
     defaultFixedCostUsd: nonNegativeDecimalStringSchema,
     defaultSlippageBps: nonNegativeDecimalStringSchema,
-    overrides: z.array(costScenarioSchema)
+    overrides: z.array(costScenarioSchema),
+    status: z.enum(["AVAILABLE", "UNAVAILABLE"])
   })
   .strict()
   .superRefine((model, context) => {
@@ -227,6 +228,17 @@ const transactionCostModelSchema = z
     );
     if (new Set(keys).size !== keys.length) {
       context.addIssue({ code: "custom", message: "Transaction-cost overrides must be unique" });
+    }
+    if (
+      model.status === "UNAVAILABLE" &&
+      (!new Decimal(model.defaultFixedCostUsd).isZero() ||
+        !new Decimal(model.defaultSlippageBps).isZero() ||
+        model.overrides.length > 0)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Unavailable transaction costs must not contain invented numeric estimates"
+      });
     }
   });
 

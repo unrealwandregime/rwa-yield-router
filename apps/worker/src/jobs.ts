@@ -17,7 +17,7 @@ export const workerJobSchema = z.discriminatedUnion("name", [
   baseJobSchema
     .extend({
       name: z.literal("ROLLUP_HISTORY"),
-      cutoff: z.iso.datetime({ offset: true })
+      cutoff: z.iso.datetime({ offset: true }).nullable()
     })
     .strict(),
   baseJobSchema
@@ -86,9 +86,10 @@ export interface JobRunStore {
       jobName: WorkerJobName;
       correlationId: string;
       attempt: number;
-      adapterVersion: string | null;
+      jobVersion: string;
       maxAttempts: number;
       queuedAt: Date;
+      sourceReference: string | null;
     }>
   ): Promise<string>;
   succeed(
@@ -101,9 +102,10 @@ export interface JobRunStore {
     runId: string,
     input: Readonly<{
       code: string;
-      retryable: boolean;
+      deadLettered: boolean;
       durationMs: number;
       attempt: number;
+      retryable: boolean;
     }>
   ): Promise<void>;
 }

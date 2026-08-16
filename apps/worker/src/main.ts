@@ -130,7 +130,9 @@ if (!config.worker.enabled) {
         notificationDispatcher
       }),
       errorReporter,
-      jobRunStore: createDatabaseJobRunStore(database),
+      jobRunStore: createDatabaseJobRunStore(database, {
+        adapterVersions: { [morphoAdapter.id]: morphoAdapter.version }
+      }),
       logger,
       metrics,
       redisUrl: config.redisUrl,

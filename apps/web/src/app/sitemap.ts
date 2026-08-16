@@ -1,9 +1,10 @@
+import { getPublicConfig } from "@rwa-yield-router/config";
 import type { MetadataRoute } from "next";
 import { CATEGORY_VALUES, categorySlug } from "@/lib/constants";
 import { getLiveCatalog } from "@/lib/live-morpho";
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const base = process.env.APP_URL ?? "http://localhost:3000";
+  const base = getPublicConfig().appUrl;
   const catalog = await getLiveCatalog();
   const staticPaths = [
     "",

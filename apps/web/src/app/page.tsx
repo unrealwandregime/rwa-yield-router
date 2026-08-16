@@ -10,8 +10,8 @@ import { getLiveCatalog } from "@/lib/live-morpho";
 
 export default async function LandingPage() {
   const records = await getLiveCatalog();
-  const stats = catalogStats();
-  const featured = records.slice(0, 4);
+  const stats = catalogStats(records);
+  const featured = records.filter((record) => record.publicationStatus === "PUBLISHED").slice(0, 4);
 
   return (
     <>
@@ -34,7 +34,7 @@ export default async function LandingPage() {
         </div>
         <aside aria-label="Sourced route preview" className="hero-terminal">
           <div className="terminal-header">
-            <span>Verified catalog</span>
+            <span>Admitted identity catalog</span>
             <ConfidenceBadge confidence="MANUALLY_VERIFIED" />
           </div>
           <div className="terminal-body">
@@ -80,7 +80,7 @@ export default async function LandingPage() {
         <div className="grid grid-3">
           {CATEGORY_VALUES.map((category) => {
             const meta = CATEGORY_META[category];
-            const categoryRecords = records.filter((record) => record.category === category);
+            const coverage = stats.categoryCoverage[category];
             return (
               <Link
                 className="card category-card"
@@ -89,10 +89,13 @@ export default async function LandingPage() {
               >
                 <div className="card-topline">
                   <span className="eyebrow">{meta.shortLabel}</span>
-                  <span className="card-count">{categoryRecords.length} published routes</span>
+                  <span className="card-count">
+                    {coverage.admitted} admitted / {coverage.gated} gated
+                  </span>
                 </div>
                 <h3>{meta.label}</h3>
                 <p>{meta.description}</p>
+                <span className="faint">{coverage.researched} sourced research records</span>
                 <ArrowRight aria-hidden className="card-arrow" size={17} />
               </Link>
             );
@@ -111,12 +114,12 @@ export default async function LandingPage() {
           </p>
           <div className="kpi-row">
             <div>
-              <strong>{stats.routes}</strong>
-              <span>published routes</span>
+              <strong>{stats.researched}</strong>
+              <span>research records</span>
             </div>
             <div>
-              <strong>{stats.sources}</strong>
-              <span>primary sources</span>
+              <strong>{stats.admitted}</strong>
+              <span>admitted records</span>
             </div>
             <div>
               <strong>{stats.gated}</strong>

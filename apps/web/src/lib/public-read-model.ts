@@ -17,6 +17,8 @@ import {
   productYieldSources,
   protocols,
   redemptionTerms,
+  riskFactorEvidence,
+  riskFactorSnapshots,
   riskMethodologyCategoryWeights,
   riskMethodologyVersions,
   sourceObservations,
@@ -37,6 +39,10 @@ import {
   resolveMetricState,
   type EffectiveMethodology
 } from "@/lib/public-read-model-core";
+import {
+  parseCompositeRiskEvidenceInput,
+  validateCompositeRiskObservationIds
+} from "@/lib/public-risk-provenance";
 
 const MAX_CATALOG_VERSIONS = 1_000;
 const DEFAULT_FRESHNESS_SECONDS = {
@@ -49,6 +55,7 @@ const DEFAULT_FRESHNESS_SECONDS = {
 type SourceStatus = "ACTIVE" | "DEGRADED" | "DISABLED" | "REMOVED";
 
 interface PublicSourceEvidence {
+  readonly archivedAt: Date | null;
   readonly confidence: string;
   readonly name: string;
   readonly publishedAt: Date | null;
@@ -67,6 +74,7 @@ export interface PersistedRouteEvidence {
   readonly category: CatalogRecord["category"];
   readonly chainId: string;
   readonly comparativeRiskAdjustedApy: string | null;
+  readonly databaseRouteId: string;
   readonly eligibility: Readonly<{
     investorClassifications: readonly (
       "RETAIL" | "ACCREDITED" | "QUALIFIED" | "PROFESSIONAL" | "INSTITUTIONAL"
@@ -86,12 +94,18 @@ export interface PersistedRouteEvidence {
   }>;
   readonly liquidityState: CatalogMetricState;
   readonly methodologyVersion: string | null;
+  readonly metricObservationIds: Readonly<{
+    aumTvl: readonly string[];
+    liquidity: readonly string[];
+    risk: readonly string[];
+    yield: readonly string[];
+  }>;
   readonly netApy: string | null;
   readonly productId: string;
   readonly protocolId: string | null;
   readonly riskScore: string | null;
   readonly riskState: CatalogMetricState;
-  readonly routeId: string;
+  readonly routeSlug: string;
   readonly sourceObservationIds: readonly string[];
   readonly stablecoinId: string | null;
   readonly underlyingAssetId: string;
@@ -129,6 +143,7 @@ const unavailableMetricState = (confidence: string): CatalogMetricState => ({
 const isPublishedSource = (source: PublicSourceEvidence, now: Date): boolean => {
   if (
     source.publicationStatus !== "PUBLISHED" ||
+    source.archivedAt !== null ||
     source.publishedAt === null ||
     (source.sourceStatus !== "ACTIVE" && source.sourceStatus !== "DEGRADED") ||
     source.verifiedAt > now
@@ -243,6 +258,7 @@ async function loadDatabasePublicReadModel(now: Date): Promise<EffectivePublicRe
       issuer: issuers.name,
       lifecycleStatus: productRoutes.lifecycleStatus,
       primaryAssetId: products.primaryAssetId,
+      productArchivedAt: products.archivedAt,
       productEffectiveTo: products.effectiveTo,
       productId: products.id,
       productName: products.name,
@@ -253,6 +269,7 @@ async function loadDatabasePublicReadModel(now: Date): Promise<EffectivePublicRe
       protocol: protocols.name,
       protocolId: protocols.id,
       requiresKyc: productRoutes.requiresKyc,
+      routeArchivedAt: productRoutes.archivedAt,
       routeEffectiveTo: productRoutes.effectiveTo,
       routeId: productRoutes.id,
       routeName: productRoutes.name,
@@ -278,6 +295,8 @@ async function loadDatabasePublicReadModel(now: Date): Promise<EffectivePublicRe
     (row) =>
       row.routeEffectiveTo === null &&
       row.productEffectiveTo === null &&
+      row.routeArchivedAt === null &&
+      row.productArchivedAt === null &&
       row.routePublicationStatus === "PUBLISHED" &&
       row.productPublicationStatus === "PUBLISHED" &&
       row.routePublishedAt !== null &&
@@ -301,6 +320,7 @@ async function loadDatabasePublicReadModel(now: Date): Promise<EffectivePublicRe
       database
         .select({
           accessMethodDescription: catalogImportRecords.accessMethodDescription,
+          archivedAt: sourceRegistry.archivedAt,
           chainLabel: catalogImportRecords.chainLabel,
           confidence: catalogImportRecords.confidence,
           eligibilitySummary: catalogImportRecords.eligibilitySummary,
@@ -325,6 +345,7 @@ async function loadDatabasePublicReadModel(now: Date): Promise<EffectivePublicRe
         .orderBy(desc(catalogImportRecords.createdAt)),
       database
         .select({
+          archivedAt: sourceRegistry.archivedAt,
           confidence: catalogImportRecords.confidence,
           name: sourceRegistry.name,
           occurredAt: adminAuditLogs.occurredAt,
@@ -373,6 +394,7 @@ async function loadDatabasePublicReadModel(now: Date): Promise<EffectivePublicRe
           publicationStatus: eligibilityRules.publicationStatus,
           requiresKyc: eligibilityRules.requiresKyc,
           routeId: eligibilityRules.routeId,
+          sourceArchivedAt: sourceRegistry.archivedAt,
           sourcePublishedAt: sourceRegistry.publishedAt,
           sourcePublicationStatus: sourceRegistry.publicationStatus,
           sourceStatus: sourceRegistry.status,
@@ -403,6 +425,7 @@ async function loadDatabasePublicReadModel(now: Date): Promise<EffectivePublicRe
           publicationStatus: redemptionTerms.publicationStatus,
           routeId: redemptionTerms.routeId,
           settlementPeriodHours: redemptionTerms.settlementPeriodHours,
+          sourceArchivedAt: sourceRegistry.archivedAt,
           sourcePublishedAt: sourceRegistry.publishedAt,
           sourcePublicationStatus: sourceRegistry.publicationStatus,
           sourceStatus: sourceRegistry.status,
@@ -436,6 +459,7 @@ async function loadDatabasePublicReadModel(now: Date): Promise<EffectivePublicRe
     const source: PublicSourceEvidence | null =
       audited?.verificationDate !== null && audited?.verificationDate !== undefined
         ? {
+            archivedAt: audited.archivedAt,
             confidence: audited.confidence ?? "MANUALLY_VERIFIED",
             name: audited.name,
             publishedAt: audited.publishedAt,
@@ -448,6 +472,7 @@ async function loadDatabasePublicReadModel(now: Date): Promise<EffectivePublicRe
           }
         : imported?.importPublicationStatus === "PUBLISHED"
           ? {
+              archivedAt: imported.archivedAt,
               confidence: imported.confidence,
               name: imported.name,
               publishedAt: imported.publishedAt,
@@ -498,7 +523,15 @@ async function loadDatabasePublicReadModel(now: Date): Promise<EffectivePublicRe
       .from(yieldSnapshots)
       .innerJoin(sourceObservations, eq(yieldSnapshots.sourceObservationId, sourceObservations.id))
       .innerJoin(sourceRegistry, eq(sourceObservations.sourceId, sourceRegistry.id))
-      .where(inArray(yieldSnapshots.routeId, admittedIds))
+      .where(
+        and(
+          inArray(yieldSnapshots.routeId, admittedIds),
+          isNull(sourceRegistry.archivedAt),
+          eq(sourceRegistry.publicationStatus, "PUBLISHED"),
+          lte(sourceRegistry.publishedAt, now),
+          inArray(sourceRegistry.status, ["ACTIVE", "DEGRADED"])
+        )
+      )
       .orderBy(yieldSnapshots.routeId, desc(yieldSnapshots.asOf)),
     database
       .selectDistinctOn([tvlAumSnapshots.routeId], {
@@ -514,7 +547,15 @@ async function loadDatabasePublicReadModel(now: Date): Promise<EffectivePublicRe
       .from(tvlAumSnapshots)
       .innerJoin(sourceObservations, eq(tvlAumSnapshots.sourceObservationId, sourceObservations.id))
       .innerJoin(sourceRegistry, eq(sourceObservations.sourceId, sourceRegistry.id))
-      .where(inArray(tvlAumSnapshots.routeId, admittedIds))
+      .where(
+        and(
+          inArray(tvlAumSnapshots.routeId, admittedIds),
+          isNull(sourceRegistry.archivedAt),
+          eq(sourceRegistry.publicationStatus, "PUBLISHED"),
+          lte(sourceRegistry.publishedAt, now),
+          inArray(sourceRegistry.status, ["ACTIVE", "DEGRADED"])
+        )
+      )
       .orderBy(tvlAumSnapshots.routeId, desc(tvlAumSnapshots.asOf)),
     database
       .selectDistinctOn([liquiditySnapshots.routeId], {
@@ -535,13 +576,22 @@ async function loadDatabasePublicReadModel(now: Date): Promise<EffectivePublicRe
         eq(liquiditySnapshots.sourceObservationId, sourceObservations.id)
       )
       .innerJoin(sourceRegistry, eq(sourceObservations.sourceId, sourceRegistry.id))
-      .where(inArray(liquiditySnapshots.routeId, admittedIds))
+      .where(
+        and(
+          inArray(liquiditySnapshots.routeId, admittedIds),
+          isNull(sourceRegistry.archivedAt),
+          eq(sourceRegistry.publicationStatus, "PUBLISHED"),
+          lte(sourceRegistry.publishedAt, now),
+          inArray(sourceRegistry.status, ["ACTIVE", "DEGRADED"])
+        )
+      )
       .orderBy(liquiditySnapshots.routeId, desc(liquiditySnapshots.asOf)),
     methodology === null
       ? Promise.resolve([])
       : database
           .selectDistinctOn([compositeRiskSnapshots.routeId], {
             calculatedAt: compositeRiskSnapshots.calculatedAt,
+            calculationInputs: compositeRiskSnapshots.calculationInputs,
             compositeScore: compositeRiskSnapshots.compositeScore,
             confidence: compositeRiskSnapshots.confidence,
             methodologyVersionId: compositeRiskSnapshots.methodologyVersionId,
@@ -563,6 +613,74 @@ async function loadDatabasePublicReadModel(now: Date): Promise<EffectivePublicRe
   const aumByRoute = latestBy(aumRows, (row) => row.routeId ?? "");
   const liquidityByRoute = latestBy(liquidityRows, (row) => row.routeId ?? "");
   const riskByRoute = latestBy(riskRows, (row) => row.routeId ?? "");
+  const riskInputsByRoute = new Map<
+    string,
+    NonNullable<ReturnType<typeof parseCompositeRiskEvidenceInput>>
+  >();
+  for (const row of riskRows) {
+    if (row.routeId === null) continue;
+    const parsedInputs = parseCompositeRiskEvidenceInput(
+      row.calculationInputs,
+      row.calculatedAt,
+      row.methodologyVersionId
+    );
+    if (parsedInputs !== null) riskInputsByRoute.set(row.routeId, parsedInputs);
+  }
+  const allRiskFactorSnapshotIds = [
+    ...new Set([...riskInputsByRoute.values()].flatMap((input) => input.factorSnapshotIds))
+  ];
+  const riskEvidenceRows =
+    allRiskFactorSnapshotIds.length === 0
+      ? []
+      : await database
+          .select({
+            factorSnapshotId: riskFactorEvidence.riskFactorSnapshotId,
+            observedAt: sourceObservations.observedAt,
+            sourceObservationId: riskFactorEvidence.sourceObservationId,
+            sourcePublicationStatus: sourceRegistry.publicationStatus,
+            sourcePublishedAt: sourceRegistry.publishedAt,
+            sourceStatus: sourceRegistry.status
+          })
+          .from(riskFactorEvidence)
+          .innerJoin(
+            sourceObservations,
+            eq(riskFactorEvidence.sourceObservationId, sourceObservations.id)
+          )
+          .innerJoin(sourceRegistry, eq(sourceObservations.sourceId, sourceRegistry.id))
+          .where(
+            and(
+              inArray(riskFactorEvidence.riskFactorSnapshotId, allRiskFactorSnapshotIds),
+              eq(sourceObservations.status, "AVAILABLE"),
+              isNull(sourceRegistry.archivedAt),
+              eq(sourceRegistry.publicationStatus, "PUBLISHED"),
+              lte(sourceRegistry.publishedAt, now),
+              inArray(sourceRegistry.status, ["ACTIVE", "DEGRADED"])
+            )
+          );
+  const riskFactorRows =
+    allRiskFactorSnapshotIds.length === 0
+      ? []
+      : await database
+          .select({
+            calculatedAt: riskFactorSnapshots.calculatedAt,
+            factorCode: riskFactorSnapshots.factorCode,
+            id: riskFactorSnapshots.id,
+            methodologyVersionId: riskFactorSnapshots.methodologyVersionId,
+            routeId: riskFactorSnapshots.routeId
+          })
+          .from(riskFactorSnapshots)
+          .where(inArray(riskFactorSnapshots.id, allRiskFactorSnapshotIds));
+  const riskObservationIdsByRoute = new Map<string, string[]>();
+  for (const [routeId, input] of riskInputsByRoute) {
+    const observedIds = validateCompositeRiskObservationIds({
+      composite: input,
+      evidence: riskEvidenceRows,
+      factors: riskFactorRows,
+      now,
+      routeId
+    });
+    if (observedIds.length > 0) riskObservationIdsByRoute.set(routeId, observedIds);
+  }
   const yieldSourcesByRoute = new Map<string, string[]>();
   for (const row of yieldSourceRows) {
     if (row.routeId === null) continue;
@@ -585,6 +703,7 @@ async function loadDatabasePublicReadModel(now: Date): Promise<EffectivePublicRe
     const aumRow = aumByRoute.get(row.routeId);
     const liquidityRow = liquidityByRoute.get(row.routeId);
     const riskRow = riskByRoute.get(row.routeId);
+    const riskObservationIds = riskObservationIdsByRoute.get(row.routeId) ?? [];
 
     const yieldState =
       yieldRow === undefined
@@ -638,7 +757,7 @@ async function loadDatabasePublicReadModel(now: Date): Promise<EffectivePublicRe
             now
           );
     const riskState =
-      riskRow === undefined
+      riskRow === undefined || riskObservationIds.length === 0
         ? unavailableMetricState(provenance.confidence)
         : resolveMetricState(
             {
@@ -657,6 +776,7 @@ async function loadDatabasePublicReadModel(now: Date): Promise<EffectivePublicRe
         candidate.routeId === row.routeId &&
         candidate.verifiedAt !== null &&
         candidate.verifiedAt <= now &&
+        candidate.sourceArchivedAt === null &&
         candidate.sourcePublicationStatus === "PUBLISHED" &&
         candidate.sourcePublishedAt !== null &&
         (candidate.sourceStatus === "ACTIVE" || candidate.sourceStatus === "DEGRADED") &&
@@ -692,6 +812,7 @@ async function loadDatabasePublicReadModel(now: Date): Promise<EffectivePublicRe
         candidate.routeId === row.routeId &&
         candidate.verifiedAt !== null &&
         candidate.verifiedAt <= now &&
+        candidate.sourceArchivedAt === null &&
         candidate.sourcePublicationStatus === "PUBLISHED" &&
         candidate.sourcePublishedAt !== null &&
         (candidate.sourceStatus === "ACTIVE" || candidate.sourceStatus === "DEGRADED") &&
@@ -726,11 +847,20 @@ async function loadDatabasePublicReadModel(now: Date): Promise<EffectivePublicRe
         : sourceReference(provenance);
     const identitySource = sourceReference(provenance);
     const states = [yieldState, aumState, liquidityState, riskState] as const;
+    const metricObservationIds = {
+      aumTvl: aumRow === undefined ? [] : [aumRow.sourceObservationId],
+      liquidity: liquidityRow === undefined ? [] : [liquidityRow.sourceObservationId],
+      risk: riskObservationIds,
+      yield: yieldRow === undefined ? [] : [yieldRow.sourceObservationId]
+    } as const;
     const sourceObservationIds = [
-      yieldRow?.sourceObservationId,
-      aumRow?.sourceObservationId,
-      liquidityRow?.sourceObservationId
-    ].filter((value): value is string => value !== undefined);
+      ...new Set([
+        ...metricObservationIds.yield,
+        ...metricObservationIds.aumTvl,
+        ...metricObservationIds.liquidity,
+        ...metricObservationIds.risk
+      ])
+    ].sort();
     const yieldSourceClasses = yieldSourcesByRoute.get(row.routeId) ?? [
       fallback?.yieldSource ?? "OTHER_VERIFIED"
     ];
@@ -814,6 +944,7 @@ async function loadDatabasePublicReadModel(now: Date): Promise<EffectivePublicRe
       category: record.category,
       chainId: row.chainCaip2 ?? routeIdentifier(record.chain),
       comparativeRiskAdjustedApy: record.riskAdjustedApy,
+      databaseRouteId: row.routeId,
       eligibility: {
         investorClassifications: [...new Set(investorClassifications)],
         jurisdictions: [...new Set(publishedEligibility.map((candidate) => candidate.isoCode))],
@@ -837,12 +968,13 @@ async function loadDatabasePublicReadModel(now: Date): Promise<EffectivePublicRe
       },
       liquidityState,
       methodologyVersion: record.methodologyVersion,
+      metricObservationIds,
       netApy: record.netApy,
       productId: row.productId,
       protocolId: row.protocolId,
       riskScore: record.riskScore,
       riskState,
-      routeId: row.routeId,
+      routeSlug: row.routeSlug,
       sourceObservationIds,
       stablecoinId: record.underlyingAsset.toUpperCase().includes("USD")
         ? routeIdentifier(record.underlyingAsset)

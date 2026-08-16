@@ -46,8 +46,8 @@ jobs:
                 "$health_url" || true
             )"
 
-            if [[ "$status" =~ ^(2|3)[0-9]{2}$ ]]; then
-              echo "Preview worker answered $health_url with HTTP $status."
+            if [[ "$status" == "200" ]] && jq -e 'type == "object" and .status == "live" and length == 1' "$response_file" >/dev/null; then
+              echo "Preview worker returned the expected liveness response."
               exit 0
             fi
 

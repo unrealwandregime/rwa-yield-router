@@ -15,6 +15,12 @@ describe("worker schedules", () => {
       900_000, 3_600_000, 300_000, 86_400_000
     ]);
     expect(schedules.every((schedule) => schedule.job.version === 1)).toBe(true);
+    expect(
+      schedules.find((schedule) => schedule.schedulerId === "rollup:daily")?.job
+    ).toMatchObject({
+      cutoff: null,
+      name: "ROLLUP_HISTORY"
+    });
   });
 
   it("uses bounded exponential retries and stable job ids", () => {

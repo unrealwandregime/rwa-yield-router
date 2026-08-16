@@ -2,14 +2,14 @@
 
 ARG NODE_VERSION=24.17.0
 
-FROM node:${NODE_VERSION}-bookworm-slim AS build
+FROM node:${NODE_VERSION}-bookworm-slim@sha256:862263c612aa437e3037674b85419622a9d93bff80aa1eee5398dfe686375532 AS build
 
 ENV PNPM_HOME=/pnpm \
     PATH=/pnpm:${PATH}
 
 WORKDIR /workspace
 
-RUN npm install --global pnpm@11.12.0
+RUN npm install --global pnpm@11.14.0
 
 COPY . .
 
@@ -19,7 +19,7 @@ RUN pnpm --filter @rwa-yield-router/worker... build
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
     pnpm --filter @rwa-yield-router/worker deploy --prod --legacy /output/worker
 
-FROM node:${NODE_VERSION}-bookworm-slim AS runtime
+FROM node:${NODE_VERSION}-bookworm-slim@sha256:862263c612aa437e3037674b85419622a9d93bff80aa1eee5398dfe686375532 AS runtime
 
 ENV NODE_ENV=production \
     WORKER_ENABLED=true \

@@ -25,6 +25,10 @@ services:
       - fromGroup: rwa-yield-router-preview-shared-secrets
       - key: NODE_ENV
         value: production
+      - key: DEPLOYMENT_TIER
+        value: preview
+      - key: TRUSTED_PROXY_MODE
+        value: render
       - key: APP_URL
         sync: false
       - key: LOG_LEVEL
@@ -32,8 +36,6 @@ services:
       - key: PORT
         value: "10000"
       - key: DATABASE_URL
-        sync: false
-      - key: REDIS_URL
         sync: false
       - key: NEXT_PUBLIC_SUPABASE_URL
         sync: false
@@ -68,6 +70,10 @@ services:
       - fromGroup: rwa-yield-router-preview-shared-secrets
       - key: NODE_ENV
         value: production
+      - key: DEPLOYMENT_TIER
+        value: preview
+      - key: TRUSTED_PROXY_MODE
+        value: render
       - key: APP_URL
         sync: false
       - key: LOG_LEVEL
@@ -97,11 +103,7 @@ services:
       - key: MORPHO_API_URL
         value: https://api.morpho.org/graphql
       - key: EMAIL_TRANSPORT
-        value: resend
-      - key: EMAIL_FROM
-        value: onboarding@resend.dev
-      - key: RESEND_API_KEY
-        sync: false
+        value: disabled
       - key: OBSERVABILITY_MODE
         value: platform
       - key: SECURITY_CONTACT_URL

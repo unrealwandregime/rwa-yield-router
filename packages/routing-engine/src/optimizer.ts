@@ -39,7 +39,8 @@ export const EXCLUSION_REASON_CODES = [
   "ISSUER_EXCLUDED",
   "CHAIN_EXCLUDED",
   "METHODOLOGY_VERSION_MISMATCH",
-  "DATA_TIMESTAMP_IN_FUTURE"
+  "DATA_TIMESTAMP_IN_FUTURE",
+  "TRANSACTION_COSTS_UNAVAILABLE"
 ] as const;
 
 export type ExclusionReasonCode = (typeof EXCLUSION_REASON_CODES)[number];
@@ -73,7 +74,7 @@ export type ConstraintCode = (typeof CONSTRAINT_CODES)[number];
 interface SelectedCostModel {
   fixedCostUsd: string;
   slippageBps: string;
-  scenario: "DEFAULT" | "ASSET" | "CHAIN" | "ASSET_AND_CHAIN";
+  scenario: "DEFAULT" | "ASSET" | "CHAIN" | "ASSET_AND_CHAIN" | "UNAVAILABLE_ZERO_SCENARIO";
 }
 
 interface PreparedCandidate extends RouteCandidate {
@@ -114,19 +115,24 @@ export interface PortfolioAllocation {
   productId: string;
   allocationPct: string;
   grossApy: string;
-  netApy: string;
-  comparativeRiskAdjustedApy: string;
+  netApy: string | null;
+  netApyBeforeTransactionCosts: string;
+  comparativeRiskAdjustedApy: string | null;
+  comparativeRiskAdjustedApyBeforeTransactionCosts: string;
   riskScore: string;
-  annualizedTransactionCostApy: string;
-  estimatedTransactionCostUsd: string;
+  annualizedTransactionCostApy: string | null;
+  estimatedTransactionCostUsd: string | null;
+  transactionCostStatus: "AVAILABLE" | "UNAVAILABLE";
   rationaleCodes: string[];
   sourceObservationIds: string[];
 }
 
 export interface PortfolioMetrics {
   grossBlendedApy: string;
-  netBlendedApy: string;
-  comparativeRiskAdjustedApy: string;
+  netBlendedApy: string | null;
+  netBlendedApyBeforeTransactionCosts: string;
+  comparativeRiskAdjustedApy: string | null;
+  comparativeRiskAdjustedApyBeforeTransactionCosts: string;
   weightedRiskScore: string;
   liquidity: {
     immediatePct: string;
@@ -146,7 +152,8 @@ export interface PortfolioMetrics {
   yieldSourceBreakdown: Record<string, string>;
   incentiveDependentAllocationPct: string;
   dataConfidenceScore: string;
-  estimatedTransactionCostsUsd: string;
+  estimatedTransactionCostsUsd: string | null;
+  transactionCostStatus: "AVAILABLE" | "UNAVAILABLE";
 }
 
 interface ResultProvenance {
@@ -243,6 +250,13 @@ function resultProvenance(
 }
 
 function selectCostModel(candidate: RouteCandidate, input: SimulationInput): SelectedCostModel {
+  if (candidate.transactionCosts.status === "UNAVAILABLE") {
+    return {
+      fixedCostUsd: "0",
+      slippageBps: "0",
+      scenario: "UNAVAILABLE_ZERO_SCENARIO"
+    };
+  }
   const matches = candidate.transactionCosts.overrides
     .filter(
       (override) =>
@@ -315,7 +329,8 @@ function evaluateCandidate(
     eligibility: candidate.eligibility.status,
     kyc: candidate.kyc,
     aumOrTvlUsd: candidate.aumOrTvlUsd,
-    availableLiquidityUsd: candidate.availableLiquidityUsd
+    availableLiquidityUsd: candidate.availableLiquidityUsd,
+    transactionCostStatus: candidate.transactionCosts.status
   };
 
   if (candidate.lifecycle !== "PUBLISHED") {
@@ -390,6 +405,9 @@ function evaluateCandidate(
   }
   if (Date.parse(candidate.dataTimestamp) > Date.parse(input.asOf)) {
     reasons.add("DATA_TIMESTAMP_IN_FUTURE");
+  }
+  if (candidate.transactionCosts.status === "UNAVAILABLE" && !input.advancedResearchMode) {
+    reasons.add("TRANSACTION_COSTS_UNAVAILABLE");
   }
 
   if (reasons.size === 0) {
@@ -936,21 +954,46 @@ function buildMetrics(candidates: PreparedCandidate[], allocations: Decimal[]): 
         new Decimal(0)
       )
     );
+  const transactionCostsAvailable = candidates.every(
+    (candidate, index) =>
+      (allocations[index] ?? new Decimal(0)).isZero() ||
+      candidate.transactionCosts.status === "AVAILABLE"
+  );
+  const netBlendedApyBeforeTransactionCosts = decimalText(
+    weighted(
+      candidates,
+      allocations,
+      (candidate) => new Decimal(candidate.netApyBeforeTransactionCosts)
+    )
+  );
+  const comparativeRiskAdjustedApyBeforeTransactionCosts = decimalText(
+    weighted(
+      candidates,
+      allocations,
+      (candidate) => new Decimal(candidate.comparativeRiskAdjustedApyBeforeTransactionCosts)
+    )
+  );
 
   return {
     grossBlendedApy: decimalText(
       weighted(candidates, allocations, (candidate) => new Decimal(candidate.grossApy))
     ),
-    netBlendedApy: decimalText(
-      weighted(candidates, allocations, (candidate) => new Decimal(candidate.adjustedNetApy))
-    ),
-    comparativeRiskAdjustedApy: decimalText(
-      weighted(
-        candidates,
-        allocations,
-        (candidate) => new Decimal(candidate.adjustedComparativeRiskApy)
-      )
-    ),
+    netBlendedApy: transactionCostsAvailable
+      ? decimalText(
+          weighted(candidates, allocations, (candidate) => new Decimal(candidate.adjustedNetApy))
+        )
+      : null,
+    netBlendedApyBeforeTransactionCosts,
+    comparativeRiskAdjustedApy: transactionCostsAvailable
+      ? decimalText(
+          weighted(
+            candidates,
+            allocations,
+            (candidate) => new Decimal(candidate.adjustedComparativeRiskApy)
+          )
+        )
+      : null,
+    comparativeRiskAdjustedApyBeforeTransactionCosts,
     weightedRiskScore: decimalText(
       weighted(candidates, allocations, (candidate) => new Decimal(candidate.riskScore))
     ),
@@ -1000,13 +1043,16 @@ function buildMetrics(candidates: PreparedCandidate[], allocations: Decimal[]): 
         new Decimal(CONFIDENCE_RANK[candidate.confidence]).div(8).mul(100)
       )
     ),
-    estimatedTransactionCostsUsd: decimalText(
-      weighted(
-        candidates,
-        allocations,
-        (candidate) => new Decimal(candidate.estimatedTransactionCostUsd)
-      )
-    )
+    estimatedTransactionCostsUsd: transactionCostsAvailable
+      ? decimalText(
+          weighted(
+            candidates,
+            allocations,
+            (candidate) => new Decimal(candidate.estimatedTransactionCostUsd)
+          )
+        )
+      : null,
+    transactionCostStatus: transactionCostsAvailable ? "AVAILABLE" : "UNAVAILABLE"
   };
 }
 
@@ -1020,11 +1066,14 @@ function buildAllocations(
     if (allocation.isZero()) {
       return [];
     }
-    const rationaleCodes = [
-      "SELECTED_BY_DETERMINISTIC_OPTIMIZER",
-      "TRANSACTION_COSTS_RECALCULATED",
-      `COST_SCENARIO_${candidate.selectedCostModel.scenario}`
-    ];
+    const transactionCostsAvailable = candidate.transactionCosts.status === "AVAILABLE";
+    const rationaleCodes = ["SELECTED_BY_DETERMINISTIC_OPTIMIZER"];
+    rationaleCodes.push(
+      transactionCostsAvailable
+        ? "TRANSACTION_COSTS_RECALCULATED"
+        : "TRANSACTION_COSTS_UNAVAILABLE_BEFORE_COST_SCENARIO"
+    );
+    rationaleCodes.push(`COST_SCENARIO_${candidate.selectedCostModel.scenario}`);
     if (input.preferredChains.includes(candidate.chainId)) {
       rationaleCodes.push("PREFERRED_CHAIN");
     }
@@ -1040,11 +1089,21 @@ function buildAllocations(
         productId: candidate.productId,
         allocationPct: decimalText(allocation),
         grossApy: candidate.grossApy,
-        netApy: candidate.adjustedNetApy,
-        comparativeRiskAdjustedApy: candidate.adjustedComparativeRiskApy,
+        netApy: transactionCostsAvailable ? candidate.adjustedNetApy : null,
+        netApyBeforeTransactionCosts: candidate.netApyBeforeTransactionCosts,
+        comparativeRiskAdjustedApy: transactionCostsAvailable
+          ? candidate.adjustedComparativeRiskApy
+          : null,
+        comparativeRiskAdjustedApyBeforeTransactionCosts:
+          candidate.comparativeRiskAdjustedApyBeforeTransactionCosts,
         riskScore: candidate.riskScore,
-        annualizedTransactionCostApy: candidate.annualizedTransactionCostApy,
-        estimatedTransactionCostUsd: candidate.estimatedTransactionCostUsd,
+        annualizedTransactionCostApy: transactionCostsAvailable
+          ? candidate.annualizedTransactionCostApy
+          : null,
+        estimatedTransactionCostUsd: transactionCostsAvailable
+          ? candidate.estimatedTransactionCostUsd
+          : null,
+        transactionCostStatus: candidate.transactionCosts.status,
         rationaleCodes,
         sourceObservationIds: [...candidate.sourceObservationIds].sort()
       }

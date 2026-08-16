@@ -13,8 +13,8 @@ describe("Next.js request proxy", () => {
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY", "");
     vi.stubEnv("NODE_ENV", "production");
 
-    const first = await proxy(new NextRequest("http://localhost:3000/dashboard"));
-    const second = await proxy(new NextRequest("http://localhost:3000/dashboard"));
+    const first = await proxy(new NextRequest("http://app.example.com/dashboard"));
+    const second = await proxy(new NextRequest("http://app.example.com/dashboard"));
     const firstPolicy = first.headers.get("Content-Security-Policy");
     const secondPolicy = second.headers.get("Content-Security-Policy");
     const firstNonce = /'nonce-([^']+)'/u.exec(firstPolicy ?? "")?.[1];

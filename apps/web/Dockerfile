@@ -2,7 +2,7 @@
 
 ARG NODE_VERSION=24.17.0
 
-FROM node:${NODE_VERSION}-bookworm-slim AS build
+FROM node:${NODE_VERSION}-bookworm-slim@sha256:862263c612aa437e3037674b85419622a9d93bff80aa1eee5398dfe686375532 AS build
 
 ENV NEXT_TELEMETRY_DISABLED=1 \
     PNPM_HOME=/pnpm \
@@ -10,7 +10,7 @@ ENV NEXT_TELEMETRY_DISABLED=1 \
 
 WORKDIR /workspace
 
-RUN npm install --global pnpm@11.12.0
+RUN npm install --global pnpm@11.14.0
 
 COPY . .
 
@@ -28,7 +28,7 @@ ENV APP_URL=${APP_URL} \
 RUN node -e "const app=new URL(process.env.APP_URL);if(app.protocol!=='https:')throw new Error('APP_URL build argument must be a canonical HTTPS URL');if(!process.env.NEXT_PUBLIC_SUPABASE_URL||!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)throw new Error('Both public Supabase build arguments are required for a release image');const auth=new URL(process.env.NEXT_PUBLIC_SUPABASE_URL);if(auth.protocol!=='https:')throw new Error('NEXT_PUBLIC_SUPABASE_URL must use HTTPS')"
 RUN pnpm --filter @rwa-yield-router/web... build
 
-FROM node:${NODE_VERSION}-bookworm-slim AS runtime
+FROM node:${NODE_VERSION}-bookworm-slim@sha256:862263c612aa437e3037674b85419622a9d93bff80aa1eee5398dfe686375532 AS runtime
 
 ARG APP_URL
 ARG NEXT_PUBLIC_SUPABASE_URL

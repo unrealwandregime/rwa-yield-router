@@ -75,10 +75,10 @@ The zero-cost dependency set is owner-provisioned and is not stored in the Bluep
 | ----------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | PostgreSQL and authentication | Supabase Free          | Use the shared Supavisor **session-mode** endpoint for persistent Render clients, a separate least-privilege runtime role, TLS with `sslmode=require` or stronger, and the direct endpoint for migrations when the release runner supports IPv6. Free projects have a 500 MB database limit, pause after inactivity, and do not include automatic backups or PITR. |
 | Queue/cache                   | Upstash Redis Free     | Use the native Redis endpoint with `rediss://`; TLS is always enabled. Keep eviction disabled. The Free limit is 256 MB and 500,000 commands per month, has no production SLA/Prod Pack, and inactive databases can be archived.                                                                                                                                   |
-| Email                         | Resend Free            | Use a scoped API key. `onboarding@resend.dev` is suitable only for an operator canary to the account owner's address; user delivery remains disabled until an owned domain is verified. Free transactional limits are 100 messages/day and 3,000/month.                                                                                                            |
+| Notifications                 | Disabled in preview    | The Blueprint sets `EMAIL_TRANSPORT=disabled`; alert rules and durable delivery records remain implemented, but the public zero-cost preview does not claim outbound delivery. An operator may configure a reviewed free transport later without making it a release dependency.                                                                                   |
 | Observability                 | Render structured logs | The Blueprint sets `OBSERVABILITY_MODE=platform`, so redacted worker capture events use stdout/stderr collected by Render. Free-platform log retention, alerting, and availability are not production release evidence.                                                                                                                                            |
 
-Official provider references: [Supabase connection modes](https://supabase.com/docs/guides/database/connecting-to-postgres), [Supabase Free limits](https://supabase.com/pricing), [Supabase backup guidance](https://supabase.com/docs/guides/platform/backups), [Upstash TLS](https://upstash.com/docs/redis/features/security), [Upstash Free limits](https://upstash.com/pricing/redis), and [Resend Free limits](https://resend.com/docs/knowledge-base/account-quotas-and-limits).
+Official provider references: [Supabase connection modes](https://supabase.com/docs/guides/database/connecting-to-postgres), [Supabase Free limits](https://supabase.com/pricing), [Supabase backup guidance](https://supabase.com/docs/guides/platform/backups), [Upstash TLS](https://upstash.com/docs/redis/features/security), and [Upstash Free limits](https://upstash.com/pricing/redis).
 
 ### Preview release gate
 
@@ -95,39 +95,55 @@ pnpm db:verify
 
 If the release runner cannot reach Supabase's IPv6 direct endpoint, the session-mode pooler may be used as the preview-only migration fallback after a staging rehearsal. That exception does not satisfy the production direct-migration requirement. Never use Supavisor transaction mode with the current Postgres.js client because it does not support prepared statements.
 
+The manual `Zero-budget preview database release gate` GitHub workflow runs the same ordered gate
+from the reviewed default-branch commit. Configure `PREVIEW_DATABASE_MIGRATION_URL` and
+`PREVIEW_DATABASE_URL` as protected `preview` environment secrets, dispatch the workflow once, and retain its
+run as release evidence. Prefer the direct migration URL; use a session-mode pooler for the
+migration secret only under the preview fallback above. The workflow never runs on push or a
+schedule and refuses to continue when either secret is absent.
+
 Stop the rollout on any failed command. Do not place the migration-owner URL in either Render service, do not run the gate concurrently, and do not substitute generated or synthetic live metrics.
+
+The current importer treats the 60 external IDs and stable slugs as a reviewed full-snapshot
+identity set. An addition, removal, or slug replacement fails closed. Before such a catalog change,
+implement and rehearse an explicit retirement/replacement procedure that versions or archives the
+old product and route, preserves prior import references, updates public-read behavior, and includes
+rollback/forward-fix evidence. This limitation does not block status or evidence updates for the
+existing identity set.
 
 ### First preview bootstrap
 
 1. Create a Supabase Free project in the chosen region. Record its HTTPS project URL and anon key, create separate migration and runtime database roles, and capture the direct and shared session-pooler connection strings. Append `sslmode=require` (or stronger) without removing existing query parameters.
-2. Create an Upstash Redis Free database near the compute region, confirm eviction is disabled, and copy its native TLS `rediss://` endpoint. Do not use the REST URL or token as `REDIS_URL`.
-3. Create a Resend Free API key. Use `onboarding@resend.dev` only for a canary to the account owner's email; verify an owned domain before any other recipient can be enabled.
-4. Run the preview release gate above. This creates only canonical reference data and the reviewed production catalog; it does not fabricate observations.
-5. Link the repository's default branch to a Render Blueprint and populate each `sync: false` value. Render supplies those values only during initial creation; later changes are made in each service's environment settings.
-6. Confirm `APP_URL`, `NEXT_PUBLIC_SUPABASE_URL`, and `NEXT_PUBLIC_SUPABASE_ANON_KEY` before the web build. Render translates service environment values into Docker build arguments, and the web Dockerfile intentionally fails without these public build inputs. Never add a server secret as a Dockerfile `ARG`.
-7. Manually deploy `rwa-yield-router-worker-preview`, verify `/health/live`, `/health/ready`, queue connectivity, scheduler registration, and one bounded idempotent ingestion job, then deploy `rwa-yield-router-web` from the identical commit.
-8. Add the worker service origin (for example, `https://rwa-yield-router-worker-preview.onrender.com`) as the GitHub repository variable `RENDER_WORKER_URL`. The `preview-worker-wake.yml` workflow calls `/health/live` hourly with bounded cold-start retries. Scheduled GitHub Actions and free-service wakeups are best-effort, so this is not a continuous scheduler.
-9. Run the public smoke suite and record the preview URL, release SHA, data counts, and known free-tier gaps. Do not call the result production.
+2. Create an Upstash Redis Free database near the compute region for the worker preview, confirm eviction is disabled, and copy its native TLS `rediss://` endpoint. Do not use the REST URL or token as `REDIS_URL`. The web preview can run without Redis and then uses a bounded per-process in-memory limiter; true production still requires Redis and fails closed without it.
+3. Run the preview release gate above. This creates only canonical reference data and the reviewed production catalog; it does not fabricate observations.
+4. Link the repository's default branch to a Render Blueprint and populate each `sync: false` value. Render supplies those values only during initial creation; later changes are made in each service's environment settings.
+5. Confirm `APP_URL`, `NEXT_PUBLIC_SUPABASE_URL`, and `NEXT_PUBLIC_SUPABASE_ANON_KEY` before the web build. Render translates service environment values into Docker build arguments, and the web Dockerfile intentionally fails without these public build inputs. Never add a server secret as a Dockerfile `ARG`.
+6. Manually deploy `rwa-yield-router-worker-preview`, verify `/health/live`, `/health/ready`, queue connectivity, scheduler registration, and one bounded idempotent ingestion job, then deploy `rwa-yield-router-web` from the identical commit.
+7. Add the worker service origin (for example, `https://rwa-yield-router-worker-preview.onrender.com`) as the GitHub repository variable `RENDER_WORKER_URL`. The `preview-worker-wake.yml` workflow calls `/health/live` hourly with bounded cold-start retries. Scheduled GitHub Actions and free-service wakeups are best-effort, so this is not a continuous scheduler.
+8. Run the public smoke suite and record the preview URL, release SHA, data counts, and known free-tier gaps. Do not call the result production.
 
 ### Render values that remain owner-supplied
 
-| Variable or setting                 | Service                    | Required value                                                                                              |
-| ----------------------------------- | -------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `APP_URL`                           | Web and worker preview     | Identical canonical Render web HTTPS origin                                                                 |
-| `DATABASE_URL`                      | Web and worker preview     | Supabase shared session-pooler URL for the least-privilege runtime role, with `sslmode=require` or stronger |
-| `REDIS_URL`                         | Web and worker preview     | Upstash native Redis URL using `rediss://`                                                                  |
-| `NEXT_PUBLIC_SUPABASE_URL`          | Web only                   | Supabase project HTTPS URL                                                                                  |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY`     | Web only                   | Browser-safe Supabase anon key                                                                              |
-| `RESEND_API_KEY`                    | Worker preview only        | Scoped Resend API key                                                                                       |
-| `SECURITY_CONTACT_URL`              | Web and worker preview     | Monitored HTTPS security-reporting destination                                                              |
-| `RPC_URL_ETHEREUM` / `RPC_URL_BASE` | Web only                   | Optional approved read-only RPC endpoints; leaving both unset keeps wallet analysis disabled                |
-| `RENDER_WORKER_URL`                 | GitHub repository variable | Public Render worker-preview origin, with no path or credentials                                            |
+| Variable or setting                 | Service                                       | Required value                                                                                              |
+| ----------------------------------- | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `APP_URL`                           | Web and worker preview                        | Identical canonical Render web HTTPS origin                                                                 |
+| `DATABASE_URL`                      | Web and worker preview                        | Supabase shared session-pooler URL for the least-privilege runtime role, with `sslmode=require` or stronger |
+| `REDIS_URL`                         | Worker preview required; web preview optional | Upstash native Redis URL using `rediss://`; omitted web preview uses bounded in-memory rate limits only     |
+| `NEXT_PUBLIC_SUPABASE_URL`          | Web only                                      | Supabase project HTTPS URL                                                                                  |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY`     | Web only                                      | Browser-safe Supabase anon key                                                                              |
+| `SECURITY_CONTACT_URL`              | Web and worker preview                        | Monitored HTTPS security-reporting destination                                                              |
+| `RPC_URL_ETHEREUM` / `RPC_URL_BASE` | Web only                                      | Optional approved read-only RPC endpoints; leaving both unset keeps wallet analysis disabled                |
+| `RENDER_WORKER_URL`                 | GitHub repository variable                    | Public Render worker-preview origin, with no path or credentials                                            |
 
-The Blueprint generates one shared `DATA_ENCRYPTION_KEY` and a worker-only `CRON_SHARED_SECRET`; neither value is committed. It explicitly selects `OBSERVABILITY_MODE=platform`, so no Sentry or OTLP account is required for this preview. Keep the shared encryption key identical across services and never rotate it without an explicit encrypted-data migration. Telegram and any paid price provider remain disabled. The first administrator is still granted only after that identity signs in and the audited procedure below is completed.
+`PREVIEW_DATABASE_MIGRATION_URL` and `PREVIEW_DATABASE_URL` belong only in protected GitHub
+Actions `preview` environment secrets for the manual release gate. They are not Render variables, repository variables,
+Docker build arguments, or application runtime configuration.
+
+The Blueprint generates one shared `DATA_ENCRYPTION_KEY` and a worker-only `CRON_SHARED_SECRET`; neither value is committed. It explicitly selects `DEPLOYMENT_TIER=preview`, `EMAIL_TRANSPORT=disabled`, and `OBSERVABILITY_MODE=platform`, so no email, Sentry, or OTLP account is required. Keep the shared encryption key identical across services and never rotate it without an explicit encrypted-data migration. Telegram and any paid price provider remain disabled. The first administrator is still granted only after that identity signs in and the audited procedure below is completed.
 
 ### Why this is not production
 
-This preview deliberately does not satisfy the release standard: the worker sleeps, schedules and alerts can be late or missed, compute and datastore tiers have no production SLA, Supabase Free has no automatic backups/PITR, GitHub schedules are not a durable scheduler, and free quotas can suspend or throttle service. It is suitable for owner testing and a public product preview only. A production promotion still requires persistent worker compute, managed durable queue semantics, restorable PostgreSQL backups, monitored capacity, current provider reviews, and every release gate in `REQUIREMENTS.md` and `TEST_PLAN.md`.
+This preview deliberately does not satisfy the release standard: the worker sleeps, outbound notifications are disabled, schedules can be late or missed, compute and datastore tiers have no production SLA, Supabase Free has no automatic backups/PITR, GitHub schedules are not a durable scheduler, and free quotas can suspend or throttle service. It is suitable for owner testing and a public product preview only. A production promotion still requires persistent worker compute, an enabled reviewed notification transport, managed durable queue semantics, restorable PostgreSQL backups, monitored capacity, current provider reviews, and every release gate in `REQUIREMENTS.md` and `TEST_PLAN.md`.
 
 ## Configuration and secrets
 
@@ -135,21 +151,24 @@ This preview deliberately does not satisfy the release standard: the worker slee
 
 ### Non-secret configuration
 
-| Variable                        | Purpose                                                                        |
-| ------------------------------- | ------------------------------------------------------------------------------ |
-| `NODE_ENV`                      | `development`, `test`, or `production`                                         |
-| `APP_URL`                       | Canonical origin; HTTPS is mandatory in production and at web image build time |
-| `LOG_LEVEL`                     | Structured log threshold                                                       |
-| `OBSERVABILITY_MODE`            | `external` (default) or explicit host-collected `platform` logs                |
-| `PORT`                          | Web listener port; defaults to 3000 in the image                               |
-| `WORKER_ENABLED`                | Must be `true` for the worker process to start                                 |
-| `WORKER_PORT`                   | Private worker health listener; defaults to 3001                               |
-| `WORKER_CONCURRENCY`            | Bounded global concurrency                                                     |
-| `MORPHO_API_URL`                | Reviewed official HTTPS GraphQL endpoint                                       |
-| `EMAIL_TRANSPORT`               | `disabled`, `resend`, or `console`; use `console` only outside production      |
-| `EMAIL_FROM`                    | Verified sender when email delivery is enabled                                 |
-| `NEXT_PUBLIC_SUPABASE_URL`      | Public HTTPS Supabase project URL, required at web build and runtime           |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Browser-safe Supabase anon key, required at web build and runtime              |
+| Variable                              | Purpose                                                                               |
+| ------------------------------------- | ------------------------------------------------------------------------------------- |
+| `NODE_ENV`                            | `development`, `test`, or `production`                                                |
+| `DEPLOYMENT_TIER`                     | `production` by default; `preview` only for an explicitly degraded deployment         |
+| `TRUSTED_PROXY_MODE`                  | `none` by default; `render` trusts Render's first `x-forwarded-for` address           |
+| `APP_URL`                             | Canonical origin; HTTPS is mandatory in production and at web image build time        |
+| `LOG_LEVEL`                           | Structured log threshold                                                              |
+| `OBSERVABILITY_MODE`                  | `external` (default) or explicit host-collected `platform` logs                       |
+| `PORT`                                | Web listener port; defaults to 3000 in the image                                      |
+| `WORKER_ENABLED`                      | Must be `true` for the worker process to start                                        |
+| `WORKER_PORT`                         | Private worker health listener; defaults to 3001                                      |
+| `WORKER_CONCURRENCY`                  | Bounded global concurrency                                                            |
+| `MORPHO_API_URL`                      | Exact reviewed endpoint `https://api.morpho.org/graphql`                              |
+| `REQUEST_TIME_PROVIDER_FETCH_ENABLED` | `true`; set `false` only for deterministic tests or an explicitly degraded deployment |
+| `EMAIL_TRANSPORT`                     | `disabled`, `resend`, or `console`; use `console` only outside production             |
+| `EMAIL_FROM`                          | Verified sender when email delivery is enabled                                        |
+| `NEXT_PUBLIC_SUPABASE_URL`            | Public HTTPS Supabase project URL, required at web build and runtime                  |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY`       | Browser-safe Supabase anon key, required at web build and runtime                     |
 
 Any `NEXT_PUBLIC_` value is shipped to browsers and must be intentionally public. Provider secrets, database URLs, internal tokens, and notification credentials must never use that prefix.
 
@@ -331,7 +350,7 @@ Production web and worker configuration fails closed unless one observability ro
 
 Pull requests run locked installation, format check, lint, type check, unit tests, migrations and integration tests against isolated PostgreSQL/Redis, E2E/accessibility tests, a production build, database verification, and a high-severity dependency audit.
 
-The current main-branch workflow builds and publishes SHA-tagged web and worker images to GHCR. It does not provision infrastructure, migrate a database, deploy either service, or promote traffic. `render.yaml` supplies only the manual-deploy zero-budget preview services; its Free tier cannot run the database release gate. After an owner-authorized provider deployment, manually dispatch the workflow with its `deployed_url` input to bind smoke evidence to the canonical HTTPS deployment.
+The current default-branch workflow builds and publishes SHA-tagged web and worker images to GHCR only after the corresponding CI run succeeds. It does not provision infrastructure, migrate a database, deploy either service, or promote traffic. `render.yaml` supplies only the manual-deploy zero-budget preview services; its Free tier cannot run the database release gate. After an owner-authorized provider deployment, manually dispatch the workflow with its `deployed_url` input to bind smoke evidence to the canonical HTTPS deployment.
 
 Provider release flow:
 

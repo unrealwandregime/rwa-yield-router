@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   boolean,
   check,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -169,6 +170,7 @@ export const yieldSnapshots = pgTable(
       table.sourceObservationId,
       table.calculationVersion
     ),
+    unique("yield_snapshots_id_route_unique").on(table.id, table.routeId),
     check(
       "yield_snapshots_exactly_one_parent",
       sql`num_nonnulls(${table.productId}, ${table.routeId}) = 1`
@@ -189,6 +191,51 @@ export const yieldSnapshots = pgTable(
       "yield_snapshots_promotion_expiry",
       sql`not ${table.isPromotional} or ${table.promotionEndsAt} is not null`
     )
+  ]
+);
+
+export const yieldHistoryRollups = pgTable(
+  "yield_history_rollups",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    routeId: uuid("route_id")
+      .notNull()
+      .references(() => productRoutes.id, { onDelete: "restrict", onUpdate: "cascade" }),
+    bucketStart: utcTimestamp("bucket_start").notNull(),
+    asOf: utcTimestamp("as_of").notNull(),
+    sourceYieldSnapshotId: uuid("source_yield_snapshot_id").notNull(),
+    netApy: numeric("net_apy", { precision: 24, scale: 18 }).notNull(),
+    confidence: confidenceClassEnum("confidence").notNull(),
+    status: dataStatusEnum("status").notNull(),
+    dataCutoff: utcTimestamp("data_cutoff").notNull(),
+    calculationVersion: varchar("calculation_version", { length: 64 }).notNull(),
+    createdAt: utcTimestamp("created_at").notNull().defaultNow(),
+    updatedAt: utcTimestamp("updated_at").notNull().defaultNow()
+  },
+  (table) => [
+    unique("yield_history_rollups_route_bucket_version_unique").on(
+      table.routeId,
+      table.bucketStart,
+      table.calculationVersion
+    ),
+    index("yield_history_rollups_route_bucket_idx").on(table.routeId, table.bucketStart),
+    index("yield_history_rollups_source_snapshot_idx").on(table.sourceYieldSnapshotId),
+    foreignKey({
+      columns: [table.sourceYieldSnapshotId, table.routeId],
+      foreignColumns: [yieldSnapshots.id, yieldSnapshots.routeId],
+      name: "yield_history_rollups_snapshot_route_fk"
+    })
+      .onDelete("restrict")
+      .onUpdate("cascade"),
+    check(
+      "yield_history_rollups_bucket_alignment",
+      sql`${table.bucketStart} = date_trunc('day', ${table.bucketStart}, 'UTC')`
+    ),
+    check(
+      "yield_history_rollups_time_order",
+      sql`${table.asOf} >= ${table.bucketStart} and ${table.asOf} < ${table.bucketStart} + interval '1 day' and ${table.dataCutoff} >= ${table.bucketStart} + interval '1 day'`
+    ),
+    check("yield_history_rollups_available", sql`${table.status} = 'AVAILABLE'`)
   ]
 );
 
@@ -618,4 +665,6 @@ export const compositeRiskSnapshots = pgTable(
 
 export type YieldSnapshot = typeof yieldSnapshots.$inferSelect;
 export type NewYieldSnapshot = typeof yieldSnapshots.$inferInsert;
+export type YieldHistoryRollup = typeof yieldHistoryRollups.$inferSelect;
+export type NewYieldHistoryRollup = typeof yieldHistoryRollups.$inferInsert;
 export type RiskFactorSnapshot = typeof riskFactorSnapshots.$inferSelect;

@@ -34,6 +34,7 @@ const requiredTableNames = [
   "source_registry",
   "source_observations",
   "yield_snapshots",
+  "yield_history_rollups",
   "apy_components",
   "price_snapshots",
   "nav_snapshots",
@@ -109,6 +110,7 @@ const requiredTables = [
   schema.sourceRegistry,
   schema.sourceObservations,
   schema.yieldSnapshots,
+  schema.yieldHistoryRollups,
   schema.apyComponents,
   schema.priceSnapshots,
   schema.navSnapshots,
@@ -199,6 +201,26 @@ describe("database schema contract", () => {
     expect(
       observationConfig.uniqueConstraints.some(
         (constraint) => constraint.getName() === "source_observations_idempotency_key_unique"
+      )
+    ).toBe(true);
+  });
+
+  it("links each daily yield rollup to its selected source snapshot", () => {
+    const rollupConfig = getTableConfig(schema.yieldHistoryRollups);
+    const snapshotRouteForeignKey = rollupConfig.foreignKeys.find(
+      (foreignKey) => foreignKey.getName() === "yield_history_rollups_snapshot_route_fk"
+    );
+
+    expect(snapshotRouteForeignKey?.reference().columns.map((column) => column.name)).toEqual([
+      "source_yield_snapshot_id",
+      "route_id"
+    ]);
+    expect(
+      snapshotRouteForeignKey?.reference().foreignColumns.map((column) => column.name)
+    ).toEqual(["id", "route_id"]);
+    expect(
+      rollupConfig.uniqueConstraints.some(
+        (constraint) => constraint.getName() === "yield_history_rollups_route_bucket_version_unique"
       )
     ).toBe(true);
   });

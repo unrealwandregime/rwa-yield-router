@@ -80,7 +80,7 @@ export function createDefaultSchedules(
       everyMs: intervals.rollupMs,
       job: {
         correlationId: correlationId(),
-        cutoff: instant,
+        cutoff: null,
         idempotencyKey: createIdempotencyKey("schedule:rollup", {
           intervalMs: intervals.rollupMs
         }),

@@ -229,7 +229,7 @@ Provider failure shall retain the last valid observation, update its freshness s
 
 The normalized PostgreSQL model shall support at least:
 
-users, user_profiles, user_preferences, roles, sessions, assets, stablecoins, chains, issuers, protocols, custodians, administrators, auditors, oracles, products, product_categories, product_routes, yield_sources, product_yield_sources, contracts, product_contracts, source_registry, source_observations, yield_snapshots, apy_components, price_snapshots, nav_snapshots, tvl_aum_snapshots, liquidity_snapshots, utilization_snapshots, risk_factor_snapshots, composite_risk_snapshots, fee_schedules, eligibility_rules, jurisdictions, redemption_terms, transfer_restrictions, custody_records, audit_records, proof_of_reserve_records, data_quality_events, adapter_health, job_runs, watchlists, watchlist_items, saved_comparisons, route_simulations, route_simulation_allocations, alert_rules, alert_events, notification_deliveries, and admin_audit_logs.
+users, user_profiles, user_preferences, roles, sessions, assets, stablecoins, chains, issuers, protocols, custodians, administrators, auditors, oracles, products, product_categories, product_routes, yield_sources, product_yield_sources, contracts, product_contracts, source_registry, source_observations, yield_snapshots, yield_history_rollups, apy_components, price_snapshots, nav_snapshots, tvl_aum_snapshots, liquidity_snapshots, utilization_snapshots, risk_factor_snapshots, composite_risk_snapshots, fee_schedules, eligibility_rules, jurisdictions, redemption_terms, transfer_restrictions, custody_records, audit_records, proof_of_reserve_records, data_quality_events, adapter_health, job_runs, watchlists, watchlist_items, saved_comparisons, route_simulations, route_simulation_allocations, alert_rules, alert_events, notification_deliveries, and admin_audit_logs.
 
 ### R-DB-002 Relationships and history
 
@@ -380,6 +380,7 @@ The objective is to maximize blended Comparative risk-adjusted APY while satisfy
 - incentive acceptance;
 - explicit exclusions;
 - no allocation to stale, paused, unavailable, or unverified routes unless an explicitly labelled advanced research mode allows them.
+- no standard-mode allocation to a route whose user-specific entry, exit, gas, or slippage costs are unavailable.
 
 Constraints shall never be relaxed silently.
 
@@ -393,8 +394,9 @@ The result shall include:
 
 - suggested analytical allocations;
 - gross blended APY;
-- net blended APY;
-- Comparative risk-adjusted APY;
+- net blended APY after user transaction costs, or an explicit unavailable state;
+- Comparative risk-adjusted APY after user transaction costs, or an explicit unavailable state;
+- provider-reported net and Comparative risk-adjusted APY before user transaction costs when an explicitly selected advanced research scenario uses unknown costs;
 - weighted risk score;
 - yield-source breakdown;
 - immediate, 24-hour, and seven-day liquidity;
@@ -403,6 +405,7 @@ The result shall include:
 - incentive dependency;
 - data-confidence score;
 - estimated transaction costs;
+- transaction-cost evidence status and every before-cost research assumption;
 - product-level rationale;
 - excluded-product explanations;
 - methodology version;
@@ -462,6 +465,8 @@ It shall sort by gross APY, net APY, Comparative risk-adjusted APY, AUM or TVL, 
 
 It shall support shareable filter URLs, column visibility, saved views, bounded pagination or virtualization, safe CSV export, and a mobile alternative.
 
+Authenticated users may create, read, rename, update, and archive private screener views. A saved view contains only validated canonical filters, a supported sort key, and a non-empty unique subset of allowlisted columns. Applying a saved view updates the public filter URL; it never places the private saved-view identifier or owner data in that URL.
+
 ### R-APP-004 Product and route detail
 
 Every detail page shall provide:
@@ -479,6 +484,8 @@ Unavailable fields shall remain visible with an honest state where their absence
 ### R-APP-005 Comparison
 
 Users shall compare up to five products or routes across gross, net, and comparative adjusted APY; stability; incentive dependency; AUM or TVL; liquidity; redemption; KYC; eligibility; minimum investment; fees; relevant risk factors; NAV deviation; confidence; and yield sources.
+
+A comparison requires two to five unique current route targets. Authenticated users may create, read, rename, replace the targets of, and archive private saved comparisons. Opening a saved comparison reconstructs the public route-slug URL so sharing never exposes a private saved-comparison identifier.
 
 A deterministic written comparison may describe only facts and differences derivable from displayed data. Every sentence shall be traceable to those inputs; invented causal explanations are prohibited.
 
@@ -505,6 +512,8 @@ The product shall provide mature provider-supported email authentication, accoun
 ### R-USR-002 Object authorization
 
 Every read and write of user-owned resources shall be server-authorized against the authenticated subject. Identifiers alone shall not grant access.
+
+Saved comparison and saved-view mutations shall pass same-origin CSRF validation, bounded account and network rate limits, strict request validation, and owner-scoped database predicates. Removal is archival so user history is not silently hard-deleted.
 
 ### R-USR-003 Read-only wallet
 
@@ -576,6 +585,8 @@ Admin navigation, pages, APIs, server actions, job controls, exports, and underl
 ### R-API-001 Public resources
 
 The documented read API shall expose allowlisted public fields for products, routes, latest and historical yield, risk scores, liquidity, AUM and TVL, sources, categories, comparison data, and public methodology versions.
+
+Every historical-yield point shall identify its actual selected snapshot, source observation, and source registry record rather than inheriting the route's current identity source. The point shall expose allowlisted confidence, status, calculation/selection versions, and observed, fetched, verified, as-of, and rollup-cutoff timestamps where applicable.
 
 ### R-API-002 Contract
 

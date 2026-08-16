@@ -1,3 +1,4 @@
+import { getPublicConfig } from "@rwa-yield-router/config";
 import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
 import type { ReactNode } from "react";
@@ -11,7 +12,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   applicationName: SITE_NAME,
   description: SITE_DESCRIPTION,
-  metadataBase: new URL(process.env.APP_URL ?? "http://localhost:3000"),
+  metadataBase: new URL(getPublicConfig().appUrl),
   openGraph: {
     description: SITE_DESCRIPTION,
     siteName: SITE_NAME,

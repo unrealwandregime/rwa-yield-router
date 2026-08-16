@@ -15,8 +15,9 @@ import {
 const discoveryStatusSchema = z.enum(["IDENTITY_CONFIRMED", "SOURCE_CONFIRMED", "ADMISSION_GATED"]);
 const publicationStatusSchema = z.enum(["PUBLISHED", "GATED", "ARCHIVED"]);
 const sourceWithoutIdSchema = normalizedSourceSchema.omit({ id: true });
+const catalogRecordIdSchema = z.string().regex(/^(?:TB|SV|DL|MM|GL|CE)-\d{2}$/u);
 const catalogRowSchema = z.tuple([
-  z.string().regex(/^(?:TB|SV|DL|MM|GL|CE)-\d{2}$/u),
+  catalogRecordIdSchema,
   z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u),
   z.string().trim().min(1).max(200),
   z.string().trim().min(1).max(32),
@@ -36,6 +37,14 @@ const catalogDocumentSchema = z
     schemaVersion: z.literal("1.0.0"),
     researchSnapshot: z.iso.date(),
     verifiedAt: z.iso.datetime({ offset: true }),
+    recordVerifiedAt: z
+      .record(catalogRecordIdSchema, z.iso.datetime({ offset: true }))
+      .optional()
+      .default({}),
+    sourceVerifiedAt: z
+      .record(z.string(), z.iso.datetime({ offset: true }))
+      .optional()
+      .default({}),
     columns: z.array(z.string()).length(14),
     sources: z.record(z.string(), sourceWithoutIdSchema),
     records: z.array(catalogRowSchema).min(60)
@@ -71,6 +80,7 @@ export const productionCatalogRecordSchema = z
     confidence: confidenceSchema,
     observedAt: z.iso.datetime({ offset: true }).nullable(),
     verifiedAt: z.iso.datetime({ offset: true }),
+    sourceVerifiedAt: z.iso.datetime({ offset: true }),
     source: normalizedSourceSchema,
     warnings: z.array(z.string().min(1))
   })
@@ -164,6 +174,17 @@ function warningsFor(
 
 function normalizeDocument(input: unknown): ReadonlyArray<ProductionCatalogRecord> {
   const document = catalogDocumentSchema.parse(input);
+  const recordIds = new Set(document.records.map(([id]) => id));
+  for (const id of Object.keys(document.recordVerifiedAt)) {
+    if (!recordIds.has(id)) {
+      throw new Error("Catalog verification date references an unknown record: " + id);
+    }
+  }
+  for (const id of Object.keys(document.sourceVerifiedAt)) {
+    if (document.sources[id] === undefined) {
+      throw new Error("Catalog source verification date references an unknown source: " + id);
+    }
+  }
   return document.records.map((row) => {
     const [
       id,
@@ -210,10 +231,12 @@ function normalizeDocument(input: unknown): ReadonlyArray<ProductionCatalogRecor
       routeName,
       slug,
       source: { ...source, id: sourceId },
+      sourceVerifiedAt:
+        document.sourceVerifiedAt[sourceId] ?? document.recordVerifiedAt[id] ?? document.verifiedAt,
       status,
       symbol,
       underlyingAsset,
-      verifiedAt: document.verifiedAt,
+      verifiedAt: document.recordVerifiedAt[id] ?? document.verifiedAt,
       warnings: warningsFor(category, status),
       yieldSource: defaults.yieldSource
     });
@@ -223,9 +246,21 @@ function normalizeDocument(input: unknown): ReadonlyArray<ProductionCatalogRecor
 export interface CatalogValidationReport {
   readonly valid: true;
   readonly total: number;
+  readonly researched: number;
+  readonly admitted: number;
   readonly published: number;
   readonly gated: number;
   readonly categoryCounts: Readonly<Record<ProductCategory, number>>;
+  readonly categoryCoverage: Readonly<
+    Record<
+      ProductCategory,
+      Readonly<{
+        researched: number;
+        admitted: number;
+        gated: number;
+      }>
+    >
+  >;
 }
 
 export function validateProductionCatalog(
@@ -234,6 +269,7 @@ export function validateProductionCatalog(
   const parsed = z.array(productionCatalogRecordSchema).min(60).parse(records);
   const ids = new Set<string>();
   const slugs = new Set<string>();
+  const sourceIdentities = new Map<string, string>();
   const categoryCounts: Record<ProductCategory, number> = {
     TOKENIZED_TBILL: 0,
     STABLECOIN_VAULT: 0,
@@ -242,13 +278,41 @@ export function validateProductionCatalog(
     GOLD_BACKED_TOKEN: 0,
     CASH_EQUIVALENT: 0
   };
+  const categoryCoverage: Record<
+    ProductCategory,
+    { researched: number; admitted: number; gated: number }
+  > = {
+    TOKENIZED_TBILL: { admitted: 0, gated: 0, researched: 0 },
+    STABLECOIN_VAULT: { admitted: 0, gated: 0, researched: 0 },
+    DEFI_LENDING: { admitted: 0, gated: 0, researched: 0 },
+    MONEY_MARKET_TOKEN: { admitted: 0, gated: 0, researched: 0 },
+    GOLD_BACKED_TOKEN: { admitted: 0, gated: 0, researched: 0 },
+    CASH_EQUIVALENT: { admitted: 0, gated: 0, researched: 0 }
+  };
   for (const record of parsed) {
     if (ids.has(record.id) || slugs.has(record.slug)) {
       throw new Error("Duplicate catalog id or slug: " + record.id);
     }
     ids.add(record.id);
     slugs.add(record.slug);
+    const sourceIdentity = JSON.stringify({
+      name: record.source.name,
+      sourceVerifiedAt: record.sourceVerifiedAt,
+      type: record.source.type,
+      url: record.source.url
+    });
+    const existingSourceIdentity = sourceIdentities.get(record.source.id);
+    if (existingSourceIdentity !== undefined && existingSourceIdentity !== sourceIdentity) {
+      throw new Error(`Conflicting source identity for ${record.source.id}`);
+    }
+    sourceIdentities.set(record.source.id, sourceIdentity);
     categoryCounts[record.category] += 1;
+    categoryCoverage[record.category].researched += 1;
+    if (record.publicationStatus === "PUBLISHED") {
+      categoryCoverage[record.category].admitted += 1;
+    } else if (record.publicationStatus === "GATED") {
+      categoryCoverage[record.category].gated += 1;
+    }
     if ((record.status === "IDENTITY_CONFIRMED") !== (record.publicationStatus === "PUBLISHED")) {
       throw new Error("Publication status contradicts admission status for " + record.id);
     }
@@ -275,10 +339,15 @@ export function validateProductionCatalog(
       throw new Error("Catalog has no records for " + category);
     }
   }
+  const admitted = parsed.filter((record) => record.publicationStatus === "PUBLISHED").length;
+  const gated = parsed.filter((record) => record.publicationStatus === "GATED").length;
   return {
+    admitted,
+    categoryCoverage,
     categoryCounts,
-    gated: parsed.filter((record) => record.publicationStatus === "GATED").length,
-    published: parsed.filter((record) => record.publicationStatus === "PUBLISHED").length,
+    gated,
+    published: admitted,
+    researched: parsed.length,
     total: parsed.length,
     valid: true
   };
@@ -311,6 +380,7 @@ export interface PublishedCatalogImportRecord {
   readonly redemptionSummary: string;
   readonly nativeYield: string | null;
   readonly source: ProductionCatalogRecord["source"];
+  readonly sourceVerifiedAt: string;
   readonly confidence: Confidence;
   readonly verifiedAt: string;
 }
@@ -332,6 +402,7 @@ export function createPublishedCatalogImportPayload(): ReadonlyArray<PublishedCa
       redemptionSummary: record.redemptionSummary,
       routeName: record.routeName,
       source: record.source,
+      sourceVerifiedAt: record.sourceVerifiedAt,
       stableProductSlug: record.slug.replace(
         /-(?:ethereum|polygon|solana|xrpl|mantle|arbitrum|base)$/u,
         ""

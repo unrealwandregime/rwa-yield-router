@@ -94,7 +94,8 @@ function candidate(
     transactionCosts: {
       defaultFixedCostUsd: "0",
       defaultSlippageBps: "0",
-      overrides: []
+      overrides: [],
+      status: "AVAILABLE"
     },
     sourceObservationIds: [OBSERVATION_ID],
     dataTimestamp: NOW,
@@ -284,7 +285,8 @@ describe("deterministic constrained optimization", () => {
             fixedCostUsd: "10",
             slippageBps: "0"
           }
-        ]
+        ],
+        status: "AVAILABLE"
       }
     });
     const baseline = await optimizePortfolio(request([route]));
@@ -308,6 +310,42 @@ describe("deterministic constrained optimization", () => {
       expect(otherOrigin.allocations[0]?.annualizedTransactionCostApy).toBe("1");
       expect(baseline.allocations[0]?.rationaleCodes).toContain("COST_SCENARIO_ASSET_AND_CHAIN");
       expect(otherOrigin.allocations[0]?.rationaleCodes).toContain("COST_SCENARIO_DEFAULT");
+    }
+  });
+
+  it("keeps unknown transaction costs unavailable and only permits a qualified before-cost research scenario", async () => {
+    const route = candidate("unknown-costs", "8", {
+      transactionCosts: {
+        defaultFixedCostUsd: "0",
+        defaultSlippageBps: "0",
+        overrides: [],
+        status: "UNAVAILABLE"
+      }
+    });
+    const standard = await optimizePortfolio(request([route]));
+    expect(standard.status).toBe("INFEASIBLE");
+    expect(standard.excludedCandidates[0]?.reasonCodes).toContain("TRANSACTION_COSTS_UNAVAILABLE");
+
+    const advanced = await optimizePortfolio(request([route], { advancedResearchMode: true }));
+    expect(advanced.status).toBe("FEASIBLE");
+    if (advanced.status === "FEASIBLE") {
+      expect(advanced.metrics).toMatchObject({
+        comparativeRiskAdjustedApy: null,
+        comparativeRiskAdjustedApyBeforeTransactionCosts: "8",
+        estimatedTransactionCostsUsd: null,
+        netBlendedApy: null,
+        netBlendedApyBeforeTransactionCosts: "8.5",
+        transactionCostStatus: "UNAVAILABLE"
+      });
+      expect(advanced.allocations[0]).toMatchObject({
+        annualizedTransactionCostApy: null,
+        comparativeRiskAdjustedApy: null,
+        comparativeRiskAdjustedApyBeforeTransactionCosts: "8",
+        estimatedTransactionCostUsd: null,
+        netApy: null,
+        netApyBeforeTransactionCosts: "8.5",
+        transactionCostStatus: "UNAVAILABLE"
+      });
     }
   });
 });
