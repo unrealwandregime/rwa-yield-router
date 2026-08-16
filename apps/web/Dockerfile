@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1.7
 
-ARG NODE_VERSION=24.17.0
+ARG NODE_IMAGE=node:24-alpine@sha256:d32cdf619f63fe0471182d08996dd516c6275bb5fd31ae06e55a570bd9e1ad43
 
-FROM node:${NODE_VERSION}-bookworm-slim@sha256:862263c612aa437e3037674b85419622a9d93bff80aa1eee5398dfe686375532 AS build
+FROM ${NODE_IMAGE} AS build
 
 ENV NEXT_TELEMETRY_DISABLED=1 \
     PNPM_HOME=/pnpm \
@@ -28,7 +28,7 @@ ENV APP_URL=${APP_URL} \
 RUN node -e "const app=new URL(process.env.APP_URL);if(app.protocol!=='https:')throw new Error('APP_URL build argument must be a canonical HTTPS URL');if(!process.env.NEXT_PUBLIC_SUPABASE_URL||!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)throw new Error('Both public Supabase build arguments are required for a release image');const auth=new URL(process.env.NEXT_PUBLIC_SUPABASE_URL);if(auth.protocol!=='https:')throw new Error('NEXT_PUBLIC_SUPABASE_URL must use HTTPS')"
 RUN pnpm --filter @rwa-yield-router/web... build
 
-FROM node:${NODE_VERSION}-bookworm-slim@sha256:862263c612aa437e3037674b85419622a9d93bff80aa1eee5398dfe686375532 AS runtime
+FROM ${NODE_IMAGE} AS runtime
 
 ARG APP_URL
 ARG NEXT_PUBLIC_SUPABASE_URL
@@ -43,6 +43,12 @@ ENV APP_URL=${APP_URL} \
     PORT=3000
 
 WORKDIR /app
+
+RUN rm -rf /usr/local/lib/node_modules/npm \
+    /usr/local/lib/node_modules/corepack \
+    /usr/local/bin/npm \
+    /usr/local/bin/npx \
+    /usr/local/bin/corepack
 
 COPY --from=build --chown=node:node /workspace/apps/web/.next/standalone ./
 COPY --from=build --chown=node:node /workspace/apps/web/.next/static ./apps/web/.next/static

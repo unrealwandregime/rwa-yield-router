@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1.7
 
-ARG NODE_VERSION=24.17.0
+ARG NODE_IMAGE=node:24-alpine@sha256:d32cdf619f63fe0471182d08996dd516c6275bb5fd31ae06e55a570bd9e1ad43
 
-FROM node:${NODE_VERSION}-bookworm-slim@sha256:862263c612aa437e3037674b85419622a9d93bff80aa1eee5398dfe686375532 AS build
+FROM ${NODE_IMAGE} AS build
 
 ENV PNPM_HOME=/pnpm \
     PATH=/pnpm:${PATH}
@@ -19,13 +19,19 @@ RUN pnpm --filter @rwa-yield-router/worker... build
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
     pnpm --filter @rwa-yield-router/worker deploy --prod --legacy /output/worker
 
-FROM node:${NODE_VERSION}-bookworm-slim@sha256:862263c612aa437e3037674b85419622a9d93bff80aa1eee5398dfe686375532 AS runtime
+FROM ${NODE_IMAGE} AS runtime
 
 ENV NODE_ENV=production \
     WORKER_ENABLED=true \
     WORKER_PORT=3001
 
 WORKDIR /app
+
+RUN rm -rf /usr/local/lib/node_modules/npm \
+    /usr/local/lib/node_modules/corepack \
+    /usr/local/bin/npm \
+    /usr/local/bin/npx \
+    /usr/local/bin/corepack
 
 COPY --from=build --chown=node:node /output/worker ./
 
