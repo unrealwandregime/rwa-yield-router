@@ -19,7 +19,7 @@ services:
     plan: free
     dockerfilePath: ./apps/web/Dockerfile
     dockerContext: .
-    autoDeployTrigger: "off"
+    autoDeployTrigger: checksPass
     healthCheckPath: /health/ready
     envVars:
       - fromGroup: rwa-yield-router-preview-shared-secrets
@@ -64,7 +64,7 @@ services:
     plan: free
     dockerfilePath: ./apps/worker/Dockerfile
     dockerContext: .
-    autoDeployTrigger: "off"
+    autoDeployTrigger: checksPass
     healthCheckPath: /health/ready
     envVars:
       - fromGroup: rwa-yield-router-preview-shared-secrets
