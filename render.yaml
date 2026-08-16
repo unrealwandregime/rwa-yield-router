@@ -14,12 +14,11 @@ envVarGroups:
 services:
   - type: web
     name: rwa-yield-router-web
-    runtime: docker
+    runtime: image
+    image:
+      url: ghcr.io/unrealwandregime/rwa-yield-router-web:fae42dcb3490b10ada8b1aab793d17c5bc1ba05c
     region: singapore
     plan: free
-    dockerfilePath: ./apps/web/Dockerfile
-    dockerContext: .
-    autoDeployTrigger: checksPass
     healthCheckPath: /health/ready
     envVars:
       - fromGroup: rwa-yield-router-preview-shared-secrets
@@ -59,12 +58,11 @@ services:
   # GitHub wake-up is best-effort and does not provide continuous scheduling.
   - type: web
     name: rwa-yield-router-worker-preview
-    runtime: docker
+    runtime: image
+    image:
+      url: ghcr.io/unrealwandregime/rwa-yield-router-worker:fae42dcb3490b10ada8b1aab793d17c5bc1ba05c
     region: singapore
     plan: free
-    dockerfilePath: ./apps/worker/Dockerfile
-    dockerContext: .
-    autoDeployTrigger: checksPass
     healthCheckPath: /health/ready
     envVars:
       - fromGroup: rwa-yield-router-preview-shared-secrets

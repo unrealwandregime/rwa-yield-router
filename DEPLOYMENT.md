@@ -62,12 +62,12 @@ The images use Node.js 24.17.0, run as the unprivileged `node` user, and contain
 
 ## Zero-budget Render preview
 
-The root [Render Blueprint](./render.yaml) is a zero-cost **preview topology**, not the production infrastructure described by this guide's Definition of Done. It creates two Render Free Docker web services from the existing images:
+The root [Render Blueprint](./render.yaml) is a zero-cost **preview topology**, not the production infrastructure described by this guide's Definition of Done. It creates two Render Free services from the CI-published immutable GHCR images:
 
 - `rwa-yield-router-web` serves the public Next.js application.
 - `rwa-yield-router-worker-preview` runs the existing worker container as a web service through its bounded health server on `WORKER_PORT=10000`. Its only public routes are generic liveness/readiness responses and token-protected internal metrics.
 
-Render does not offer free background workers or free pre-deploy commands. Both services therefore deploy only after the linked GitHub Actions checks pass, and the database release gate remains an explicit operator step. Render documents Free services as previews rather than production: they spin down after 15 idle minutes, can take about a minute to wake, share 750 monthly running hours per workspace, can restart at any time, cannot scale beyond one instance, and have no shell or one-off jobs. See [Render's Free instance limitations](https://render.com/docs/free).
+Render does not offer free background workers or free pre-deploy commands. Both services therefore run prebuilt images that were already built, scanned, and published by GitHub Actions, and the database release gate remains an explicit operator step. Render documents Free services as previews rather than production: they spin down after 15 idle minutes, can take about a minute to wake, share 750 monthly running hours per workspace, can restart at any time, cannot scale beyond one instance, and have no shell or one-off jobs. See [Render's Free instance limitations](https://render.com/docs/free).
 
 The zero-cost dependency set is owner-provisioned and is not stored in the Blueprint:
 
@@ -117,8 +117,8 @@ existing identity set.
 2. Create an Upstash Redis Free database near the compute region for the worker preview, confirm eviction is disabled, and copy its native TLS `rediss://` endpoint. Do not use the REST URL or token as `REDIS_URL`. The web preview can run without Redis and then uses a bounded per-process in-memory limiter; true production still requires Redis and fails closed without it.
 3. Run the preview release gate above. This creates only canonical reference data and the reviewed production catalog; it does not fabricate observations.
 4. Link the repository's default branch to a Render Blueprint and populate each `sync: false` value. Render supplies those values only during initial creation; later changes are made in each service's environment settings.
-5. Confirm `APP_URL`, `NEXT_PUBLIC_SUPABASE_URL`, and `NEXT_PUBLIC_SUPABASE_ANON_KEY` before the web build. Render translates service environment values into Docker build arguments, and the web Dockerfile intentionally fails without these public build inputs. Never add a server secret as a Dockerfile `ARG`.
-6. After GitHub Actions passes, Render deploys `rwa-yield-router-worker-preview` and `rwa-yield-router-web` from the checked commit. Verify `/health/live`, `/health/ready`, queue connectivity, scheduler registration, and one bounded idempotent ingestion job on the worker before treating the web preview as current.
+5. Confirm the `image.url` tags in `render.yaml` point to a CI-published SHA whose CI run and release-artifact image publication both succeeded. The web image is built with `APP_URL`, `NEXT_PUBLIC_SUPABASE_URL`, and `NEXT_PUBLIC_SUPABASE_ANON_KEY` by the GitHub release workflow, not by Render. Never add a server secret as a Dockerfile `ARG`.
+6. After the Blueprint syncs, Render pulls `rwa-yield-router-worker-preview` and `rwa-yield-router-web` from the pinned GHCR tags. Verify `/health/live`, `/health/ready`, queue connectivity, scheduler registration, and one bounded idempotent ingestion job on the worker before treating the web preview as current.
 7. Add the worker service origin (for example, `https://rwa-yield-router-worker-preview.onrender.com`) as the GitHub repository variable `RENDER_WORKER_URL`. The `preview-worker-wake.yml` workflow calls `/health/live` hourly with bounded cold-start retries. Scheduled GitHub Actions and free-service wakeups are best-effort, so this is not a continuous scheduler.
 8. Run the public smoke suite and record the preview URL, release SHA, data counts, and known free-tier gaps. Do not call the result production.
 
@@ -350,7 +350,7 @@ Production web and worker configuration fails closed unless one observability ro
 
 Pull requests run locked installation, format check, lint, type check, unit tests, migrations and integration tests against isolated PostgreSQL/Redis, E2E/accessibility tests, a production build, database verification, and a high-severity dependency audit.
 
-The current default-branch workflow builds and publishes SHA-tagged web and worker images to GHCR only after the corresponding CI run succeeds. It does not provision infrastructure, migrate a database, deploy either service, or promote traffic. `render.yaml` supplies only the zero-budget preview services and configures Render to deploy the linked commit after GitHub Actions checks pass; its Free tier cannot run the database release gate. After an owner-authorized provider deployment, manually dispatch the workflow with its `deployed_url` input to bind smoke evidence to the canonical HTTPS deployment.
+The current default-branch workflow builds and publishes SHA-tagged web and worker images to GHCR only after the corresponding CI run succeeds. It does not provision infrastructure, migrate a database, deploy either service, or promote traffic. `render.yaml` supplies only the zero-budget preview services and points Render at immutable GHCR image tags from a checked release-artifact run; its Free tier cannot run the database release gate. After an owner-authorized provider deployment, manually dispatch the workflow with its `deployed_url` input to bind smoke evidence to the canonical HTTPS deployment.
 
 Provider release flow:
 
