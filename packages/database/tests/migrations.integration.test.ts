@@ -472,19 +472,25 @@ describe("database migrations against an isolated PostgreSQL database", () => {
         })
       ).rejects.toThrow();
 
-      await expect(
-        database.insert(yieldHistoryRollups).values({
-          asOf: new Date("2026-07-18T12:00:00.000Z"),
-          bucketStart: new Date("2026-07-18T00:00:00.000Z"),
-          calculationVersion: "rollup-integrity-mismatched-value",
-          confidence: "DIRECT_API",
-          dataCutoff: new Date("2026-07-19T00:00:00.000Z"),
-          netApy: "9.9",
-          routeId: firstRoute.id,
-          sourceYieldSnapshotId: firstSnapshot.id,
-          status: "AVAILABLE"
-        })
-      ).rejects.toThrow(/exactly match/iu);
+      const mismatchedValue = database.insert(yieldHistoryRollups).values({
+        asOf: new Date("2026-07-18T12:00:00.000Z"),
+        bucketStart: new Date("2026-07-18T00:00:00.000Z"),
+        calculationVersion: "rollup-integrity-mismatched-value",
+        confidence: "DIRECT_API",
+        dataCutoff: new Date("2026-07-19T00:00:00.000Z"),
+        netApy: "9.9",
+        routeId: firstRoute.id,
+        sourceYieldSnapshotId: firstSnapshot.id,
+        status: "AVAILABLE"
+      });
+      await expect(mismatchedValue).rejects.toThrow();
+      const mismatchedValueRows = await database
+        .select({ id: yieldHistoryRollups.id })
+        .from(yieldHistoryRollups)
+        .where(
+          sql`${yieldHistoryRollups.calculationVersion} = 'rollup-integrity-mismatched-value'`
+        );
+      expect(mismatchedValueRows).toHaveLength(0);
 
       await expect(
         database.insert(yieldHistoryRollups).values({
