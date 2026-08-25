@@ -344,26 +344,22 @@ const unavailableRiskMetricState = (at: string): CatalogMetricState => ({
   status: "UNAVAILABLE"
 });
 
-const staleMetricState = (state: CatalogMetricState): CatalogMetricState =>
-  state.observedAt === null ? state : { ...state, confidence: "STALE", status: "STALE" };
-
-const stalePersistedMorphoRecords = (model: EffectivePublicReadModel): readonly CatalogRecord[] => {
+export const annotatePersistedMorphoProviderFailure = (
+  model: Pick<EffectivePublicReadModel, "catalog"> & {
+    readonly persistedEvidenceBySlug: ReadonlyMap<string, unknown>;
+  }
+): readonly CatalogRecord[] => {
   const canonical = new Set(MORPHO_PRODUCTION_ROUTES.map((route) => route.routeSlug));
   return model.catalog.map((record) => {
     if (!canonical.has(record.slug) || !model.persistedEvidenceBySlug.has(record.slug))
       return record;
     return {
       ...record,
-      confidence: "STALE",
-      metricStatus: {
-        aumTvl: staleMetricState(record.metricStatus.aumTvl),
-        liquidity: staleMetricState(record.metricStatus.liquidity),
-        risk: staleMetricState(record.metricStatus.risk),
-        yield: staleMetricState(record.metricStatus.yield)
-      },
       warnings: [
-        ...record.warnings,
-        "The official Morpho provider is unavailable; last persisted values are retained and marked stale."
+        ...record.warnings.filter(
+          (warning) => !warning.startsWith("The request-time Morpho refresh is unavailable;")
+        ),
+        "The request-time Morpho refresh is unavailable; displayed persisted observations retain their independently evaluated freshness status."
       ]
     };
   });
@@ -505,7 +501,7 @@ export async function getLiveCatalog(): Promise<CatalogRecord[]> {
     lastProviderStatus = statusFromEvidence(evidence, records, checkedAt);
     return records;
   } catch (error) {
-    const records = stalePersistedMorphoRecords(model);
+    const records = annotatePersistedMorphoProviderFailure(model);
     const latestObservedAt =
       records
         .flatMap((record) => (record.observedAt === null ? [] : [record.observedAt]))

@@ -13,6 +13,7 @@ vi.mock("@/lib/public-read-model", () => ({
 }));
 
 import {
+  annotatePersistedMorphoProviderFailure,
   fetchLiveMorphoEvidence,
   getLiveCatalog,
   getOfficialProviderStatus
@@ -25,6 +26,52 @@ afterEach(() => {
 });
 
 describe("request-time Morpho evidence", () => {
+  it("does not relabel fresh persisted observations as stale when a request-time refresh fails", () => {
+    const identity = MORPHO_PRODUCTION_ROUTES[0];
+    if (identity === undefined) throw new Error("Morpho route fixture is missing");
+    const record = getCatalog().find((candidate) => candidate.slug === identity.routeSlug);
+    if (record === undefined) throw new Error("Catalog route fixture is missing");
+    const currentState = {
+      confidence: "DIRECT_API",
+      observedAt: "2026-08-25T07:37:03.335Z",
+      status: "CURRENT" as const
+    };
+    const persistedRecord = {
+      ...record,
+      confidence: "DIRECT_API",
+      metricStatus: {
+        aumTvl: currentState,
+        liquidity: currentState,
+        risk: { ...currentState, confidence: "ESTIMATED", status: "ESTIMATED" as const },
+        yield: currentState
+      },
+      observedAt: currentState.observedAt,
+      warnings: []
+    };
+    const [annotated] = annotatePersistedMorphoProviderFailure({
+      catalog: [persistedRecord],
+      persistedEvidenceBySlug: new Map([
+        [
+          persistedRecord.slug,
+          {
+            aumState: currentState,
+            liquidityState: currentState,
+            methodologyVersion: RISK_METHODOLOGY_V1.semanticVersion,
+            riskState: persistedRecord.metricStatus.risk,
+            yieldState: currentState
+          }
+        ]
+      ])
+    });
+
+    expect(annotated?.confidence).toBe("DIRECT_API");
+    expect(annotated?.metricStatus.yield.status).toBe("CURRENT");
+    expect(annotated?.metricStatus.risk.status).toBe("ESTIMATED");
+    expect(annotated?.warnings).toEqual([
+      expect.stringContaining("retain their independently evaluated freshness status")
+    ]);
+  });
+
   it("never calls the provider when request-time fetching is explicitly disabled", async () => {
     const [catalogRecord] = getCatalog();
     if (catalogRecord === undefined) throw new Error("Catalog route fixture is missing");

@@ -465,6 +465,10 @@ It shall sort by gross APY, net APY, Comparative risk-adjusted APY, AUM or TVL, 
 
 It shall support shareable filter URLs, column visibility, saved views, bounded pagination or virtualization, safe CSV export, and a mobile alternative.
 
+The default screener view shall show admitted routes. Users may explicitly include or isolate
+admission-gated research records; changing that scope must not make a gated route eligible for
+simulation or any admitted-data aggregate.
+
 Authenticated users may create, read, rename, update, and archive private screener views. A saved view contains only validated canonical filters, a supported sort key, and a non-empty unique subset of allowlisted columns. Applying a saved view updates the public filter URL; it never places the private saved-view identifier or owner data in that URL.
 
 ### R-APP-004 Product and route detail

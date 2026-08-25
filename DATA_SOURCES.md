@@ -133,6 +133,10 @@ written by the worker to `source_observations` may supply optimizer provenance. 
 reflects the provider's vault-fee and reward treatment, but not a user's entry, exit, gas, slippage,
 capital, or holding-period assumptions.
 
+A failed request-time refresh does not relabel worker-persisted observations. Their current or stale
+state remains determined by the recorded observation time and the source freshness policy; the
+request-time provider failure is reported separately as degraded provider health.
+
 ## 5. Freshness policy
 
 These are conservative starting defaults. Adapter configuration may tighten them, but may not make an issuer's business-day NAV look intraday.

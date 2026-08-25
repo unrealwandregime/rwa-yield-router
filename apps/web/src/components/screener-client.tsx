@@ -46,6 +46,11 @@ export function ScreenerClient({
   const category = searchParams.get("category") ?? "ALL";
   const chain = searchParams.get("chain") ?? "ALL";
   const confidence = searchParams.get("confidence") ?? "ALL";
+  const requestedAdmission = searchParams.get("admission");
+  const admission =
+    requestedAdmission === "ALL" || requestedAdmission === "RESEARCH"
+      ? requestedAdmission
+      : "ADMITTED";
   const parsedConfidence = confidenceClassificationSchema.safeParse(confidence);
   const savedConfidence = parsedConfidence.success ? parsedConfidence.data : null;
   const parsedSort = screenerSortKeySchema.safeParse(searchParams.get("sort") ?? "product");
@@ -125,7 +130,11 @@ export function ScreenerClient({
         (normalizedQuery === "" || haystack.includes(normalizedQuery)) &&
         (category === "ALL" || record.category === category) &&
         (chain === "ALL" || record.chain === chain) &&
-        (confidence === "ALL" || record.confidence === confidence)
+        (confidence === "ALL" || record.confidence === confidence) &&
+        (admission === "ALL" ||
+          (admission === "RESEARCH"
+            ? record.publicationStatus === "GATED"
+            : record.publicationStatus === "PUBLISHED"))
       );
     });
 
@@ -147,7 +156,7 @@ export function ScreenerClient({
           );
       }
     });
-  }, [category, chain, confidence, query, records, sort]);
+  }, [admission, category, chain, confidence, query, records, sort]);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageRecords = filtered.slice((Math.min(page, pageCount) - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -270,6 +279,18 @@ export function ScreenerClient({
             ))}
           </select>
         </label>
+        <label className="field">
+          <span className="sr-only">Admission status</span>
+          <select
+            className="select"
+            onChange={(event) => setParam("admission", event.currentTarget.value)}
+            value={admission}
+          >
+            <option value="ADMITTED">Admitted routes</option>
+            <option value="ALL">All research records</option>
+            <option value="RESEARCH">Research only</option>
+          </select>
+        </label>
         <button className="button button-secondary" onClick={exportCsv} type="button">
           <Download aria-hidden size={15} /> CSV
         </button>
@@ -277,8 +298,8 @@ export function ScreenerClient({
 
       <div className="inline-actions" style={{ justifyContent: "space-between", marginBottom: 12 }}>
         <span className="muted" role="status" style={{ fontSize: 12 }}>
-          {filtered.length} sourced route{filtered.length === 1 ? "" : "s"} · page{" "}
-          {Math.min(page, pageCount)} of {pageCount}
+          {filtered.length} {admission === "ADMITTED" ? "admitted" : "sourced"} route
+          {filtered.length === 1 ? "" : "s"} · page {Math.min(page, pageCount)} of {pageCount}
         </span>
         <div className="inline-actions">
           <label className="field" style={{ flexDirection: "row", alignItems: "center" }}>

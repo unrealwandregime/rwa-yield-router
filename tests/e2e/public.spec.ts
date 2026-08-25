@@ -19,6 +19,8 @@ test("landing, dashboard, and sourced route navigation work", async ({ page }) =
 
 test("screener filters keep unavailable values explicit", async ({ page }) => {
   await page.goto("/screener");
+  await expect(page.getByLabel("Admission status")).toHaveValue("ADMITTED");
+  await expect(page.getByText("Research only", { exact: true })).toHaveCount(0);
   const search = page.getByPlaceholder("Search product, issuer, protocol, or asset");
   await search.fill("gold");
   await expect(page.getByRole("table")).toBeVisible();

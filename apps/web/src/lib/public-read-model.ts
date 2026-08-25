@@ -864,8 +864,14 @@ async function loadDatabasePublicReadModel(now: Date): Promise<EffectivePublicRe
     const yieldSourceClasses = yieldSourcesByRoute.get(row.routeId) ?? [
       fallback?.yieldSource ?? "OTHER_VERIFIED"
     ];
+    const hasPersistedMetricEvidence = states.some((state) => state.observedAt !== null);
     const warnings = [
-      ...(fallback?.warnings ?? []),
+      ...(fallback?.warnings ?? []).filter(
+        (warning) =>
+          !hasPersistedMetricEvidence ||
+          warning !==
+            "Identity metadata is sourced; live financial metrics remain unavailable until fresh observations pass admission."
+      ),
       ...states.flatMap((state, index) => {
         const label = ["Yield", "AUM/TVL", "Liquidity", "Risk"][index] ?? "Metric";
         const warning = metricWarning(label, state);
