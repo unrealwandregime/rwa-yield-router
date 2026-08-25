@@ -71,12 +71,12 @@ Render does not offer free background workers or free pre-deploy commands. Both 
 
 The zero-cost dependency set is owner-provisioned and is not stored in the Blueprint:
 
-| Dependency                    | Preview choice         | Mandatory safeguards and limits                                                                                                                                                                                                                                                                                                                                    |
-| ----------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| PostgreSQL and authentication | Supabase Free          | Use the shared Supavisor **session-mode** endpoint for persistent Render clients, a separate least-privilege runtime role, TLS with `sslmode=require` or stronger, and the direct endpoint for migrations when the release runner supports IPv6. Free projects have a 500 MB database limit, pause after inactivity, and do not include automatic backups or PITR. |
-| Queue/cache                   | Upstash Redis Free     | Use the native Redis endpoint with `rediss://`; TLS is always enabled. Keep eviction disabled. The Free limit is 256 MB and 500,000 commands per month, has no production SLA/Prod Pack, and inactive databases can be archived.                                                                                                                                   |
-| Notifications                 | Disabled in preview    | The Blueprint sets `EMAIL_TRANSPORT=disabled`; alert rules and durable delivery records remain implemented, but the public zero-cost preview does not claim outbound delivery. An operator may configure a reviewed free transport later without making it a release dependency.                                                                                   |
-| Observability                 | Render structured logs | The Blueprint sets `OBSERVABILITY_MODE=platform`, so redacted worker capture events use stdout/stderr collected by Render. Free-platform log retention, alerting, and availability are not production release evidence.                                                                                                                                            |
+| Dependency                    | Preview choice         | Mandatory safeguards and limits                                                                                                                                                                                                                                                                                                                                                            |
+| ----------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| PostgreSQL and authentication | Supabase Free          | Use the shared Supavisor **session-mode** endpoint for persistent Render clients, a separate least-privilege runtime role, TLS with `sslmode=require` or stronger, and the direct endpoint for migrations when the release runner supports IPv6. Free projects have a 500 MB database limit, pause after inactivity, and do not include automatic backups or PITR.                         |
+| Queue/cache                   | Upstash Redis Free     | Use the native Redis endpoint with `rediss://`; TLS is always enabled. Keep eviction disabled. The Free limit is 256 MB and 500,000 commands per month, has no production SLA/Prod Pack, and inactive databases can be archived. The preview sets `WORKER_DRAIN_DELAY_SECONDS=30` so an idle BullMQ worker stays within the command allowance; production retains the five-second default. |
+| Notifications                 | Disabled in preview    | The Blueprint sets `EMAIL_TRANSPORT=disabled`; alert rules and durable delivery records remain implemented, but the public zero-cost preview does not claim outbound delivery. An operator may configure a reviewed free transport later without making it a release dependency.                                                                                                           |
+| Observability                 | Render structured logs | The Blueprint sets `OBSERVABILITY_MODE=platform`, so redacted worker capture events use stdout/stderr collected by Render. Free-platform log retention, alerting, and availability are not production release evidence.                                                                                                                                                                    |
 
 Official provider references: [Supabase connection modes](https://supabase.com/docs/guides/database/connecting-to-postgres), [Supabase Free limits](https://supabase.com/pricing), [Supabase backup guidance](https://supabase.com/docs/guides/platform/backups), [Upstash TLS](https://upstash.com/docs/redis/features/security), and [Upstash Free limits](https://upstash.com/pricing/redis).
 
@@ -151,24 +151,25 @@ This preview deliberately does not satisfy the release standard: the worker slee
 
 ### Non-secret configuration
 
-| Variable                              | Purpose                                                                               |
-| ------------------------------------- | ------------------------------------------------------------------------------------- |
-| `NODE_ENV`                            | `development`, `test`, or `production`                                                |
-| `DEPLOYMENT_TIER`                     | `production` by default; `preview` only for an explicitly degraded deployment         |
-| `TRUSTED_PROXY_MODE`                  | `none` by default; `render` trusts Render's first `x-forwarded-for` address           |
-| `APP_URL`                             | Canonical origin; HTTPS is mandatory in production and at web image build time        |
-| `LOG_LEVEL`                           | Structured log threshold                                                              |
-| `OBSERVABILITY_MODE`                  | `external` (default) or explicit host-collected `platform` logs                       |
-| `PORT`                                | Web listener port; defaults to 3000 in the image                                      |
-| `WORKER_ENABLED`                      | Must be `true` for the worker process to start                                        |
-| `WORKER_PORT`                         | Private worker health listener; defaults to 3001                                      |
-| `WORKER_CONCURRENCY`                  | Bounded global concurrency                                                            |
-| `MORPHO_API_URL`                      | Exact reviewed endpoint `https://api.morpho.org/graphql`                              |
-| `REQUEST_TIME_PROVIDER_FETCH_ENABLED` | `true`; set `false` only for deterministic tests or an explicitly degraded deployment |
-| `EMAIL_TRANSPORT`                     | `disabled`, `resend`, or `console`; use `console` only outside production             |
-| `EMAIL_FROM`                          | Verified sender when email delivery is enabled                                        |
-| `NEXT_PUBLIC_SUPABASE_URL`            | Public HTTPS Supabase project URL, required at web build and runtime                  |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY`       | Browser-safe Supabase anon key, required at web build and runtime                     |
+| Variable                              | Purpose                                                                                 |
+| ------------------------------------- | --------------------------------------------------------------------------------------- |
+| `NODE_ENV`                            | `development`, `test`, or `production`                                                  |
+| `DEPLOYMENT_TIER`                     | `production` by default; `preview` only for an explicitly degraded deployment           |
+| `TRUSTED_PROXY_MODE`                  | `none` by default; `render` trusts Render's first `x-forwarded-for` address             |
+| `APP_URL`                             | Canonical origin; HTTPS is mandatory in production and at web image build time          |
+| `LOG_LEVEL`                           | Structured log threshold                                                                |
+| `OBSERVABILITY_MODE`                  | `external` (default) or explicit host-collected `platform` logs                         |
+| `PORT`                                | Web listener port; defaults to 3000 in the image                                        |
+| `WORKER_ENABLED`                      | Must be `true` for the worker process to start                                          |
+| `WORKER_PORT`                         | Private worker health listener; defaults to 3001                                        |
+| `WORKER_CONCURRENCY`                  | Bounded global concurrency                                                              |
+| `WORKER_DRAIN_DELAY_SECONDS`          | Empty-queue polling delay from 5 to 300 seconds; preview uses 30 to conserve free quota |
+| `MORPHO_API_URL`                      | Exact reviewed endpoint `https://api.morpho.org/graphql`                                |
+| `REQUEST_TIME_PROVIDER_FETCH_ENABLED` | `true`; set `false` only for deterministic tests or an explicitly degraded deployment   |
+| `EMAIL_TRANSPORT`                     | `disabled`, `resend`, or `console`; use `console` only outside production               |
+| `EMAIL_FROM`                          | Verified sender when email delivery is enabled                                          |
+| `NEXT_PUBLIC_SUPABASE_URL`            | Public HTTPS Supabase project URL, required at web build and runtime                    |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY`       | Browser-safe Supabase anon key, required at web build and runtime                       |
 
 Any `NEXT_PUBLIC_` value is shipped to browsers and must be intentionally public. Provider secrets, database URLs, internal tokens, and notification credentials must never use that prefix.
 

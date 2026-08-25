@@ -102,6 +102,7 @@ const serverEnvironmentSchema = z
     SECURITY_CONTACT_URL: optionalHttpsUrlSchema,
     WORKER_PORT: z.coerce.number().int().min(1024).max(65535).default(3001),
     WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(32).default(4),
+    WORKER_DRAIN_DELAY_SECONDS: z.coerce.number().int().min(5).max(300).default(5),
     SCHEDULES_ENABLED: z
       .enum(["true", "false"])
       .default("true")
@@ -253,6 +254,7 @@ export type ServerConfig = Readonly<{
     enabled: boolean;
     port: number;
     concurrency: number;
+    drainDelaySeconds: number;
     schedules: Readonly<{
       enabled: boolean;
       ingestIntervalMs: number;
@@ -326,6 +328,7 @@ export function loadServerConfig(
       enabled: value.WORKER_ENABLED,
       port: value.WORKER_PORT,
       concurrency: value.WORKER_CONCURRENCY,
+      drainDelaySeconds: value.WORKER_DRAIN_DELAY_SECONDS,
       schedules: {
         alertIntervalMs: value.ALERT_INTERVAL_MS,
         enabled: value.SCHEDULES_ENABLED,

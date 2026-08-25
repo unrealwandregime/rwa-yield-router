@@ -26,6 +26,7 @@ const JOB_VERSION = "worker-jobs-v1";
 export interface WorkerRuntimeOptions {
   readonly redisUrl: string;
   readonly concurrency: number;
+  readonly drainDelaySeconds: number;
   readonly handlers: WorkerJobHandlers;
   readonly logger: Logger;
   readonly metrics: Metrics;
@@ -181,6 +182,7 @@ export async function createWorkerRuntime(options: WorkerRuntimeOptions): Promis
     {
       concurrency: options.concurrency,
       connection,
+      drainDelay: options.drainDelaySeconds,
       lockDuration: 60_000,
       maxStalledCount: 1,
       stalledInterval: 30_000

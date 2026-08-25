@@ -123,6 +123,7 @@ if (!config.worker.enabled) {
     const notificationDispatcher = new NotificationDispatcher(notificationAdapters);
     runtime = await createWorkerRuntime({
       concurrency: config.worker.concurrency,
+      drainDelaySeconds: config.worker.drainDelaySeconds,
       handlers: createProductionWorkerHandlers({
         database,
         encryptionKey: config.dataEncryptionKey,

@@ -21,7 +21,23 @@ describe("loadServerConfig", () => {
     expect(config.requestTimeProviderFetchEnabled).toBe(true);
     expect(config.observability.mode).toBe("external");
     expect(config.worker.concurrency).toBe(4);
+    expect(config.worker.drainDelaySeconds).toBe(5);
     expect(config.rpcUrls).toEqual({});
+  });
+
+  it("supports a bounded low-command worker drain delay", () => {
+    expect(
+      loadServerConfig({
+        ...baseEnvironment,
+        WORKER_DRAIN_DELAY_SECONDS: "30"
+      }).worker.drainDelaySeconds
+    ).toBe(30);
+    expect(() =>
+      loadServerConfig({ ...baseEnvironment, WORKER_DRAIN_DELAY_SECONDS: "4" })
+    ).toThrow();
+    expect(() =>
+      loadServerConfig({ ...baseEnvironment, WORKER_DRAIN_DELAY_SECONDS: "301" })
+    ).toThrow();
   });
 
   it("supports an explicit deterministic request-time provider-fetch disable", () => {
