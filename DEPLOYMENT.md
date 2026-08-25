@@ -86,6 +86,7 @@ Render Free cannot run the migration sequence before deployment. Before every pr
 
 ```sh
 pnpm install --frozen-lockfile
+pnpm --filter @rwa-yield-router/database... build
 pnpm data:validate
 pnpm db:migrate
 pnpm db:seed
