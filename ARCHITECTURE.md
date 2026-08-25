@@ -146,6 +146,10 @@ Selection rejects invalid/future/semantically incompatible data, then ranks offi
 
 Jobs have stable idempotency keys, locks, timeouts, bounded attempts, exponential backoff with jitter, circuit breakers, per-provider rate/concurrency limits, dead letters, and correlation IDs. Schedules in REQUIREMENTS.md are configuration. A provider outage preserves the last valid observation until its status becomes stale or unavailable.
 
+The Redis client command timeout remains bounded but exceeds BullMQ's intentional blocking waits,
+including the configured idle-worker drain delay. Readiness wraps its Redis probe in a separate,
+short deadline so a queue outage still fails closed without interrupting healthy long polling.
+
 Every completed ingestion attempt transactionally finalizes its job run and appends adapter health.
 Final failures also append a redacted durable dead-letter record; Redis dead-letter payloads are not
 the authoritative operational history. A duplicate observation still reconciles its typed snapshot,

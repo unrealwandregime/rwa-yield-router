@@ -56,7 +56,13 @@ export function buildJobOptions(job: WorkerJob): JobsOptions {
   };
 }
 
-function connectionOptionsFromUrl(redisUrl: string): ConnectionOptions {
+const QUEUE_EVENTS_BLOCK_TIMEOUT_MS = 10_000;
+const REDIS_COMMAND_TIMEOUT_HEADROOM_MS = 5_000;
+
+export function connectionOptionsFromUrl(
+  redisUrl: string,
+  drainDelaySeconds: number
+): ConnectionOptions {
   const url = new URL(redisUrl);
   if (url.protocol !== "redis:" && url.protocol !== "rediss:") {
     throw new Error("REDIS_URL must use redis or rediss");
@@ -66,7 +72,11 @@ function connectionOptionsFromUrl(redisUrl: string): ConnectionOptions {
     throw new Error("REDIS_URL database index is invalid");
   }
   return {
-    commandTimeout: 3_000,
+    // BullMQ intentionally blocks while an idle worker waits for work. Keep the client timeout
+    // bounded, but longer than both BullMQ's event wait and the configured worker drain delay.
+    commandTimeout:
+      Math.max(QUEUE_EVENTS_BLOCK_TIMEOUT_MS, drainDelaySeconds * 1_000) +
+      REDIS_COMMAND_TIMEOUT_HEADROOM_MS,
     connectTimeout: 5_000,
     db: database,
     enableReadyCheck: true,
@@ -99,7 +109,7 @@ async function dispatchJob(
 }
 
 export async function createWorkerRuntime(options: WorkerRuntimeOptions): Promise<WorkerRuntime> {
-  const connection = connectionOptionsFromUrl(options.redisUrl);
+  const connection = connectionOptionsFromUrl(options.redisUrl, options.drainDelaySeconds);
   const queue = new Queue<WorkerJob, WorkerJobResult>(QUEUE_NAME, {
     connection
   });
