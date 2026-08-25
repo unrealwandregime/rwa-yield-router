@@ -16,7 +16,7 @@ services:
     name: rwa-yield-router-web
     runtime: image
     image:
-      url: ghcr.io/unrealwandregime/rwa-yield-router-web:22b55d0752660d75ad149c6115475079955858f7
+      url: ghcr.io/unrealwandregime/rwa-yield-router-web:7cc02e8ee6349d540bab05199b30dbd0d6d0d2ba
     region: singapore
     plan: free
     healthCheckPath: /health/ready
@@ -35,6 +35,8 @@ services:
       - key: PORT
         value: "10000"
       - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
         sync: false
       - key: NEXT_PUBLIC_SUPABASE_URL
         sync: false
@@ -60,7 +62,7 @@ services:
     name: rwa-yield-router-worker-preview
     runtime: image
     image:
-      url: ghcr.io/unrealwandregime/rwa-yield-router-worker:22b55d0752660d75ad149c6115475079955858f7
+      url: ghcr.io/unrealwandregime/rwa-yield-router-worker:7cc02e8ee6349d540bab05199b30dbd0d6d0d2ba
     region: singapore
     plan: free
     healthCheckPath: /health/ready
