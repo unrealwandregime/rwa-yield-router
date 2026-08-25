@@ -345,6 +345,20 @@ describe("worker risk evidence admission", () => {
         weights
       )
     ).toThrow(/UNSUPPORTED_RISK_METHODOLOGY/u);
+
+    const representativeWeight = weights.at(0);
+    if (representativeWeight === undefined) throw new Error("Test methodology has no weights");
+    const prototypeBefore = Object.getPrototypeOf({});
+    expect(() =>
+      parseSupportedPersistedRiskMethodology(version, [
+        ...weights,
+        {
+          ...representativeWeight,
+          factorCode: "__proto__"
+        }
+      ])
+    ).toThrow(/UNSUPPORTED_RISK_METHODOLOGY/u);
+    expect(Object.getPrototypeOf({})).toBe(prototypeBefore);
   });
 });
 

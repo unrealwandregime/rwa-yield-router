@@ -314,7 +314,7 @@ export const parseSupportedPersistedRiskMethodology = (
     throw methodologySelectionError("UNSUPPORTED_RISK_METHODOLOGY");
   }
 
-  const categoryWeights: Record<string, Record<string, string>> = {};
+  const categoryWeightEntries = new Map<string, Map<string, string>>();
   const seen = new Set<string>();
   for (const row of weightRows) {
     const missingEvidencePolicy = supportedMissingEvidencePolicySchema.safeParse(
@@ -340,10 +340,16 @@ export const parseSupportedPersistedRiskMethodology = (
     } catch {
       throw methodologySelectionError("UNSUPPORTED_RISK_METHODOLOGY");
     }
-    const weights = categoryWeights[row.category] ?? {};
-    weights[row.factorCode] = weightPercentage;
-    categoryWeights[row.category] = weights;
+    const weights = categoryWeightEntries.get(row.category) ?? new Map<string, string>();
+    weights.set(row.factorCode, weightPercentage);
+    categoryWeightEntries.set(row.category, weights);
   }
+
+  // Build plain records without dynamic property assignment so even malformed
+  // database input such as "__proto__" cannot invoke the legacy prototype setter.
+  const categoryWeights = Object.fromEntries(
+    [...categoryWeightEntries].map(([category, weights]) => [category, Object.fromEntries(weights)])
+  );
 
   const methodology = riskMethodologySchema.safeParse({
     authorId: version.publishedByUserId,
