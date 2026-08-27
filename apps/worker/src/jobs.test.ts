@@ -12,7 +12,7 @@ describe("worker schedules", () => {
     });
 
     expect(schedules.map((schedule) => schedule.everyMs)).toEqual([
-      900_000, 3_600_000, 300_000, 86_400_000
+      900_000, 900_000, 3_600_000, 300_000, 86_400_000
     ]);
     expect(schedules.every((schedule) => schedule.job.version === 1)).toBe(true);
     expect(

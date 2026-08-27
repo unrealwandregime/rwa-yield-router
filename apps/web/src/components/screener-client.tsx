@@ -449,20 +449,37 @@ export function ScreenerClient({
                     </td>
                   ) : null}
                   {visible.has("grossApy") ? (
-                    <td className="numeric">{formatPercent(record.grossApy)}</td>
+                    <td className="numeric">
+                      {formatPercent(record.grossApy ?? record.nativeYield)}
+                    </td>
                   ) : null}
                   {visible.has("netApy") ? (
-                    <td className="numeric">{formatPercent(record.netApy)}</td>
+                    <td className="numeric">
+                      {record.netApy === null && record.grossApy !== null
+                        ? "Fees not sourced"
+                        : formatPercent(record.netApy)}
+                    </td>
                   ) : null}
                   {visible.has("riskAdjustedApy") ? (
-                    <td className="numeric">{formatPercent(record.riskAdjustedApy)}</td>
+                    <td className="numeric">
+                      {record.riskAdjustedApy === null &&
+                      (record.grossApy !== null || record.netApy !== null)
+                        ? "Not calculated"
+                        : formatPercent(record.riskAdjustedApy)}
+                    </td>
                   ) : null}
                   {visible.has("risk") ? <td>{formatRisk(record.riskScore)}</td> : null}
                   {visible.has("aumTvl") ? (
                     <td className="numeric">{formatUsd(record.aumTvlUsd)}</td>
                   ) : null}
                   {visible.has("liquidity") ? (
-                    <td className="numeric">{formatUsd(record.liquidityUsd)}</td>
+                    <td className="numeric">
+                      {record.liquidityUsd === null &&
+                      (record.category === "TOKENIZED_TBILL" ||
+                        record.category === "MONEY_MARKET_TOKEN")
+                        ? "Issuer redemption"
+                        : formatUsd(record.liquidityUsd)}
+                    </td>
                   ) : null}
                   {visible.has("redemption") ? <td>{record.redemptionSummary}</td> : null}
                   {visible.has("eligibility") ? (

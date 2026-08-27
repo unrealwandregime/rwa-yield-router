@@ -73,3 +73,56 @@ export const MORPHO_PRODUCTION_ROUTES: ReadonlyArray<MorphoProductionRoute> = z
   ]);
 
 export const MORPHO_API_URL = "https://api.morpho.org/graphql";
+
+export const ondoUsdyProductionRouteSchema = z
+  .object({
+    routeSlug: z.string().min(1),
+    chain: z.enum(["Ethereum", "Mantle", "Solana", "Arbitrum"]),
+    rpcUrl: z.url().refine((value) => new URL(value).protocol === "https:"),
+    tokenAddress: z.string().min(1),
+    tokenKind: z.enum(["EVM", "SOLANA"])
+  })
+  .strict();
+
+export type OndoUsdyProductionRoute = z.infer<typeof ondoUsdyProductionRouteSchema>;
+
+/**
+ * Official USDY token identities from Ondo's address registry. RPC endpoints
+ * are zero-cost public transports for independently verifiable chain state;
+ * they are not treated as the economic source of the values.
+ */
+export const ONDO_USDY_PRODUCTION_ROUTES: ReadonlyArray<OndoUsdyProductionRoute> = z
+  .array(ondoUsdyProductionRouteSchema)
+  .parse([
+    {
+      routeSlug: "ondo-usdy-ethereum",
+      chain: "Ethereum",
+      rpcUrl: "https://ethereum-rpc.publicnode.com",
+      tokenAddress: "0x96F6eF951840721AdBF46Ac996b59E0235CB985C",
+      tokenKind: "EVM"
+    },
+    {
+      routeSlug: "ondo-usdy-mantle",
+      chain: "Mantle",
+      rpcUrl: "https://rpc.mantle.xyz",
+      tokenAddress: "0x5bE26527e817998A7206475496fDE1E68957c5A6",
+      tokenKind: "EVM"
+    },
+    {
+      routeSlug: "ondo-usdy-solana",
+      chain: "Solana",
+      rpcUrl: "https://api.mainnet-beta.solana.com",
+      tokenAddress: "A1KLoBrKBde8Ty9qtNQUtq3C2ortoC3u7twggz7sEto6",
+      tokenKind: "SOLANA"
+    },
+    {
+      routeSlug: "ondo-usdy-arbitrum",
+      chain: "Arbitrum",
+      rpcUrl: "https://arb1.arbitrum.io/rpc",
+      tokenAddress: "0x35e050d3C0eC2d29D269a8EcEa763a183bDF9A9D",
+      tokenKind: "EVM"
+    }
+  ]);
+
+export const ONDO_USDY_ORACLE_RPC_URL = "https://ethereum-rpc.publicnode.com";
+export const ONDO_USDY_ORACLE_ADDRESS = "0xA0219AA5B31e65Bc920B5b6DFb8EdF0988121De0";

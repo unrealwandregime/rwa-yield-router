@@ -133,6 +133,12 @@ Auth subjects map to local users. Preferences, watchlists, saved screener views,
 
 Adapters expose supported subsets of discoverProducts, fetchProductMetadata, fetchYield, fetchTVLOrAUM, fetchLiquidity, fetchPrice, fetchNAV, fetchUtilization, fetchHistoricalData, and healthCheck. Results are observation, unavailable, unsupported, rejected, or degraded discriminated unions. Adapters never write presentation snapshots directly.
 
+The credential-free USDY on-chain adapter uses Ondo's canonical Ethereum price oracle as the
+product-level economic source and canonical chain token supplies as route-level scale evidence. It
+persists gross yield only (trailing 30-day price return annualized) and route AUM. It never copies
+gross yield into net yield, treats issuer redemption as numeric market liquidity, or creates a risk
+score without factor evidence.
+
 Flow:
 
 1. scheduler enqueues a versioned idempotent job under provider limits;

@@ -11,6 +11,7 @@ export interface WorkerSchedule {
 
 export interface ScheduleOptions {
   readonly morphoSourceId?: string;
+  readonly ondoUsdySourceId?: string;
   readonly now?: () => Date;
   readonly correlationId?: () => string;
   readonly intervals?: Readonly<{
@@ -27,6 +28,7 @@ export function createDefaultSchedules(
   const now = options.now ?? (() => new Date());
   const correlationId = options.correlationId ?? createCorrelationId;
   const morphoSourceId = options.morphoSourceId ?? "MORPHO-API";
+  const ondoUsdySourceId = options.ondoUsdySourceId ?? "OND-USDY";
   const instant = now().toISOString();
   const intervals = options.intervals ?? {
     alertMs: 5 * 60_000,
@@ -50,6 +52,21 @@ export function createDefaultSchedules(
         version: 1
       },
       schedulerId: "ingest:" + morphoSourceId
+    },
+    {
+      everyMs: intervals.ingestMs,
+      job: {
+        correlationId: correlationId(),
+        externalEntityId: null,
+        idempotencyKey: createIdempotencyKey("schedule:ingest", {
+          sourceId: ondoUsdySourceId,
+          intervalMs: intervals.ingestMs
+        }),
+        name: "INGEST_SOURCE",
+        sourceId: ondoUsdySourceId,
+        version: 1
+      },
+      schedulerId: "ingest:" + ondoUsdySourceId
     },
     {
       everyMs: intervals.riskMs,

@@ -6,6 +6,7 @@ export * from "./idempotency.js";
 export * from "./import.js";
 export * from "./morpho.js";
 export * from "./onchain.js";
+export * from "./ondo-usdy.js";
 export * from "./production-routes.js";
 export * from "./rate-limit.js";
 export * from "./safe-fetch.js";

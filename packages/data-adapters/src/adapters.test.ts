@@ -5,6 +5,7 @@ import { CircuitBreaker, CircuitOpenError } from "./circuit-breaker.js";
 import { AdapterError } from "./errors.js";
 import { createIdempotencyKey } from "./idempotency.js";
 import { MorphoGraphqlAdapter } from "./morpho.js";
+import { OndoUsdyOnchainAdapter } from "./ondo-usdy.js";
 import { safeFetchJson } from "./safe-fetch.js";
 import { selectObservation } from "./selection.js";
 import { normalizedObservationSchema } from "./types.js";
@@ -195,6 +196,107 @@ describe("MorphoGraphqlAdapter", () => {
       code: "MALFORMED_RESPONSE",
       status: "UNAVAILABLE"
     });
+  });
+});
+
+describe("OndoUsdyOnchainAdapter", () => {
+  const uint256 = (value: bigint): string => `0x${value.toString(16).padStart(64, "0")}`;
+  const route = {
+    chain: "Ethereum",
+    routeSlug: "ondo-usdy-ethereum",
+    rpcUrl: "https://rpc.example.com",
+    tokenAddress: "0x96F6eF951840721AdBF46Ac996b59E0235CB985C",
+    tokenKind: "EVM"
+  } as const;
+
+  it("derives annualized trailing yield from official current and historical oracle prices", async () => {
+    const fetchImplementation = vi.fn<typeof fetch>(async (_input, init) => {
+      const request = JSON.parse(String(init?.body)) as {
+        params: readonly [{ data: string }];
+      };
+      const historical = request.params[0].data.startsWith("0xa712c9c7");
+      return new Response(
+        JSON.stringify({
+          id: 1,
+          jsonrpc: "2.0",
+          result: uint256(historical ? 1_000_000_000_000_000_000n : 1_003_000_000_000_000_000n)
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    });
+    const adapter = new OndoUsdyOnchainAdapter({
+      fetchImplementation,
+      now: () => new Date("2026-08-27T00:00:00.000Z"),
+      oracleRpcUrl: "https://rpc.example.com",
+      resolver: publicResolver,
+      routes: [route]
+    });
+
+    const result = await adapter.fetchYield(route.routeSlug);
+    expect(result.kind).toBe("OBSERVATION");
+    if (result.kind === "OBSERVATION") {
+      expect(result.value).toMatchObject({
+        confidence: "ONCHAIN_DERIVED",
+        metric: "YIELD",
+        status: "CURRENT",
+        unit: "DECIMAL_RATIO"
+      });
+      expect(Number(result.value.normalizedValue)).toBeCloseTo(0.0371, 3);
+    }
+  });
+
+  it("computes route AUM from on-chain supply and the official oracle without inventing liquidity", async () => {
+    const fetchImplementation = vi.fn<typeof fetch>(async (_input, init) => {
+      const request = JSON.parse(String(init?.body)) as {
+        method: string;
+        params: readonly [{ data?: string }];
+      };
+      const result =
+        request.method === "eth_blockNumber"
+          ? "0x10"
+          : request.params[0]?.data === "0x18160ddd"
+            ? uint256(2_000_000_000_000_000_000n)
+            : uint256(1_250_000_000_000_000_000n);
+      return new Response(JSON.stringify({ id: 1, jsonrpc: "2.0", result }), {
+        headers: { "content-type": "application/json" }
+      });
+    });
+    const adapter = new OndoUsdyOnchainAdapter({
+      fetchImplementation,
+      now: () => new Date("2026-08-27T00:00:00.000Z"),
+      oracleRpcUrl: "https://rpc.example.com",
+      resolver: publicResolver,
+      routes: [route]
+    });
+
+    const result = await adapter.fetchTVLOrAUM(route.routeSlug);
+    expect(result).toMatchObject({
+      kind: "OBSERVATION",
+      value: {
+        blockNumber: "16",
+        metric: "AUM",
+        normalizedValue: "2.5",
+        unit: "USD"
+      }
+    });
+    expect("fetchLiquidity" in adapter).toBe(false);
+  });
+
+  it("rejects unknown route identities before making a network request", async () => {
+    const fetchImplementation = vi.fn<typeof fetch>();
+    const adapter = new OndoUsdyOnchainAdapter({
+      fetchImplementation,
+      oracleRpcUrl: "https://rpc.example.com",
+      resolver: publicResolver,
+      routes: [route]
+    });
+
+    await expect(adapter.fetchYield("not-admitted")).resolves.toMatchObject({
+      code: "MALFORMED_RESPONSE",
+      kind: "REJECTED",
+      retryable: false
+    });
+    expect(fetchImplementation).not.toHaveBeenCalled();
   });
 });
 

@@ -4,9 +4,11 @@ import { and, desc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 import {
   createIdempotencyKey,
   MORPHO_PRODUCTION_ROUTES,
+  ONDO_USDY_PRODUCTION_ROUTES,
   type AdapterResult,
   type DataStatus,
   type MorphoGraphqlAdapter,
+  type OndoUsdyOnchainAdapter,
   type NormalizedObservation
 } from "@rwa-yield-router/data-adapters";
 import {
@@ -624,6 +626,7 @@ export interface ProductionWorkerHandlerOptions {
   readonly database: Database;
   readonly encryptionKey?: string | undefined;
   readonly morphoAdapter: MorphoGraphqlAdapter;
+  readonly ondoUsdyAdapter: OndoUsdyOnchainAdapter;
   readonly notificationDispatcher: NotificationDispatcher;
   readonly now?: () => Date;
 }
@@ -869,16 +872,17 @@ export const createProductionWorkerHandlers = (
     },
 
     async INGEST_SOURCE(job) {
-      if (job.sourceId !== "MORPHO-API") {
+      if (job.sourceId !== "MORPHO-API" && job.sourceId !== "OND-USDY") {
         throw new WorkerJobError("UNSUPPORTED_SOURCE", false);
       }
+      const sourceCode = job.sourceId === "MORPHO-API" ? "CATALOG-MORPHO-API" : "CATALOG-OND-USDY";
       const [source, usdAsset] = await Promise.all([
         options.database
           .select({ id: sourceRegistry.id })
           .from(sourceRegistry)
           .where(
             and(
-              eq(sourceRegistry.code, "CATALOG-MORPHO-API"),
+              eq(sourceRegistry.code, sourceCode),
               eq(sourceRegistry.publicationStatus, "PUBLISHED"),
               eq(sourceRegistry.status, "ACTIVE")
             )
@@ -897,10 +901,20 @@ export const createProductionWorkerHandlers = (
         throw new WorkerJobError("CATALOG_BOOTSTRAP_REQUIRED", false);
       }
 
-      const selectedRoutes = MORPHO_PRODUCTION_ROUTES.filter((route) => {
-        const externalId = `${route.chainId}:${route.contractAddress.toLowerCase()}`;
-        return job.externalEntityId === null || job.externalEntityId === externalId;
-      });
+      const selectedRoutes =
+        job.sourceId === "MORPHO-API"
+          ? MORPHO_PRODUCTION_ROUTES.map((route) => ({
+              externalId: `${route.chainId}:${route.contractAddress.toLowerCase()}`,
+              routeSlug: route.routeSlug
+            })).filter(
+              (route) => job.externalEntityId === null || job.externalEntityId === route.externalId
+            )
+          : ONDO_USDY_PRODUCTION_ROUTES.map((route) => ({
+              externalId: route.routeSlug,
+              routeSlug: route.routeSlug
+            })).filter(
+              (route) => job.externalEntityId === null || job.externalEntityId === route.externalId
+            );
       if (selectedRoutes.length === 0) throw new WorkerJobError("ROUTE_NOT_ADMITTED", false);
 
       let recordsRead = 0;
@@ -996,22 +1010,27 @@ export const createProductionWorkerHandlers = (
                     sourceMetric: persistedObservation.metric,
                     sourceUnit: persistedObservation.unit
                   },
-                  calculationVersion: "morpho-direct-net-apy-v1",
+                  calculationVersion:
+                    job.sourceId === "MORPHO-API"
+                      ? "morpho-direct-net-apy-v1"
+                      : "ondo-usdy-trailing-30d-price-return-v1",
                   isPromotional: false,
                   isVariable: true,
-                  netApy: ratioToPercentagePoints(normalizedValue)
+                  ...(job.sourceId === "MORPHO-API"
+                    ? { netApy: ratioToPercentagePoints(normalizedValue) }
+                    : { grossApy: ratioToPercentagePoints(normalizedValue) })
                 })
                 .onConflictDoNothing()
                 .returning({ id: yieldSnapshots.id });
               return inserted !== undefined;
             }
-            if (persistedObservation.metric === "TVL") {
+            if (persistedObservation.metric === "TVL" || persistedObservation.metric === "AUM") {
               const [inserted] = await transaction
                 .insert(tvlAumSnapshots)
                 .values({
                   ...shared,
                   amount: normalizedValue,
-                  metricKind: "TVL",
+                  metricKind: persistedObservation.metric,
                   quoteAssetId: usdAssetId
                 })
                 .onConflictDoNothing()
@@ -1030,7 +1049,7 @@ export const createProductionWorkerHandlers = (
                 .returning({ id: liquiditySnapshots.id });
               return inserted !== undefined;
             }
-            throw new WorkerJobError("UNSUPPORTED_MORPHO_METRIC", false);
+            throw new WorkerJobError("UNSUPPORTED_INGESTION_METRIC", false);
           }
         );
         const counts = observationPersistenceCounts(status, persisted);
@@ -1056,18 +1075,25 @@ export const createProductionWorkerHandlers = (
           recordsRejected += 1;
           continue;
         }
-        const externalEntityId = `${identity.chainId}:${identity.contractAddress.toLowerCase()}`;
-        const [yieldResult, tvlResult, liquidityResult] = await Promise.all([
-          options.morphoAdapter.fetchYield(externalEntityId),
-          options.morphoAdapter.fetchTVLOrAUM(externalEntityId),
-          options.morphoAdapter.fetchLiquidity(externalEntityId)
-        ]);
+        const externalEntityId = identity.externalId;
+        const results =
+          job.sourceId === "MORPHO-API"
+            ? await Promise.all([
+                options.morphoAdapter.fetchYield(externalEntityId),
+                options.morphoAdapter.fetchTVLOrAUM(externalEntityId),
+                options.morphoAdapter.fetchLiquidity(externalEntityId)
+              ])
+            : await Promise.all([
+                options.ondoUsdyAdapter.fetchYield(externalEntityId),
+                options.ondoUsdyAdapter.fetchTVLOrAUM(externalEntityId)
+              ]);
+        const [yieldResult, tvlResult, liquidityResult] = results;
         await persist(route.id, yieldResult);
         await persist(route.id, tvlResult);
-        await persist(route.id, liquidityResult);
+        if (liquidityResult !== undefined) await persist(route.id, liquidityResult);
       }
       if (recordsAccepted === 0 && retryableFailures > 0) {
-        throw new WorkerJobError("MORPHO_UPSTREAM_UNAVAILABLE", true);
+        throw new WorkerJobError(`${job.sourceId}_UPSTREAM_UNAVAILABLE`, true);
       }
       return {
         outcome: "SUCCEEDED",

@@ -8,6 +8,7 @@
     "CE-01": "2026-07-18T00:00:00.000Z"
   },
   "sourceVerifiedAt": {
+    "OND-USDY": "2026-08-27T00:00:00.000Z",
     "AAVE": "2026-07-18T00:00:00.000Z",
     "AAVE-V3-ETH-USDC": "2026-07-18T00:00:00.000Z",
     "USYC-ETH": "2026-07-18T00:00:00.000Z",
@@ -36,9 +37,9 @@
       "type": "OFFICIAL_DOCUMENT"
     },
     "OND-USDY": {
-      "name": "Ondo USDY documentation",
-      "url": "https://docs.ondo.finance/general-access-products/usdy/basics",
-      "type": "OFFICIAL_DOCUMENT"
+      "name": "Ondo USDY official on-chain contracts",
+      "url": "https://docs.ondo.finance/addresses",
+      "type": "ONCHAIN"
     },
     "OPENEDEN": {
       "name": "OpenEden TBILL documentation",

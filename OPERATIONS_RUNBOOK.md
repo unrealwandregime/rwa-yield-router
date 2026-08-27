@@ -90,6 +90,12 @@ Initial alert thresholds are versioned configuration and should be tuned after b
 6. Recover with a bounded health check, then a canary fetch and gradual concurrency restoration. Verify normalization, duplicates, freshness, source link, and downstream recalculation.
 7. Close after two expected successful cycles and backlog clearance; document provider communication and whether limits/fallback policy need change.
 
+For `OND-USDY`, isolate transport failures by chain. An Ethereum oracle failure affects yield and
+all route-AUM calculations; a Mantle, Solana, or Arbitrum RPC failure affects only that route's AUM.
+Do not substitute Ondo's marketing-page APY/TVL, add chain supplies together as a route value, or
+reuse another chain's block height. Recovery requires a non-zero oracle price, a non-zero historical
+price, a canonical token-supply response, and two successful scheduled cycles.
+
 ## Runbook: database migration failure
 
 **Trigger:** migration job exits non-zero, lock timeout, partial DDL, readiness schema mismatch, or post-migration query failure.

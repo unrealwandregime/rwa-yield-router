@@ -7,7 +7,7 @@ import {
   createDatabase,
   verifyDatabase
 } from "@rwa-yield-router/database";
-import { MorphoGraphqlAdapter } from "@rwa-yield-router/data-adapters";
+import { MorphoGraphqlAdapter, OndoUsdyOnchainAdapter } from "@rwa-yield-router/data-adapters";
 import {
   ConsoleEmailAdapter,
   NotificationDispatcher,
@@ -108,6 +108,7 @@ if (!config.worker.enabled) {
 
   try {
     const morphoAdapter = new MorphoGraphqlAdapter({ endpoint: config.morphoApiUrl });
+    const ondoUsdyAdapter = new OndoUsdyOnchainAdapter();
     const notificationAdapters: NotificationAdapter[] = [];
     if (config.email.transport === "console" && config.nodeEnv !== "production") {
       notificationAdapters.push(new ConsoleEmailAdapter(logger));
@@ -128,11 +129,15 @@ if (!config.worker.enabled) {
         database,
         encryptionKey: config.dataEncryptionKey,
         morphoAdapter,
+        ondoUsdyAdapter,
         notificationDispatcher
       }),
       errorReporter,
       jobRunStore: createDatabaseJobRunStore(database, {
-        adapterVersions: { [morphoAdapter.id]: morphoAdapter.version }
+        adapterVersions: {
+          [morphoAdapter.id]: morphoAdapter.version,
+          [ondoUsdyAdapter.id]: ondoUsdyAdapter.version
+        }
       }),
       logger,
       metrics,

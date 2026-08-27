@@ -344,6 +344,15 @@ These are base-asset/instrument candidates. Unless the official terms explicitly
 
 ## 8. Credentials, licensing and operational checklist
 
+The admitted USDY adapter is credential-free and reads only canonical on-chain state. Every 15
+minutes it derives a trailing 30-day annualized gross return from the official Ethereum
+`RWADynamicOracle` current and historical prices, then calculates route AUM as canonical token
+supply multiplied by that price for Ethereum, Mantle, Solana, and Arbitrum. RPC transports are
+allowlisted, HTTPS-only, DNS-checked, redirect-blocked, size-bounded, and time-bounded. The value is
+labelled `ONCHAIN_DERIVED`; it is not Ondo's forward-looking advertised APY. The adapter deliberately
+does not emit net APY, risk-adjusted APY, a risk score, or a numeric liquidity value: fees and complete
+risk evidence are not sourced, and issuer subscription/redemption is not pool liquidity.
+
 - RPC endpoints for every supported chain, with at least two independent providers for critical production reads.
 - API keys/budgets for The Graph, Uniswap API, explorer fallback, and any issuer-authenticated endpoint; secrets remain server-side.
 - Written legal approval for commercial use, caching and redistribution of every off-chain dataset. RWA.xyz and DefiLlama are disabled until explicit rights exist.

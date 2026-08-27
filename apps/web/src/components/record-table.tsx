@@ -47,8 +47,12 @@ export function RecordTable({ records }: { records: CatalogRecord[] }) {
               <td>
                 <Badge>{record.chain}</Badge>
               </td>
-              <td className="numeric">{formatPercent(record.grossApy)}</td>
-              <td className="numeric">{formatPercent(record.netApy)}</td>
+              <td className="numeric">{formatPercent(record.grossApy ?? record.nativeYield)}</td>
+              <td className="numeric">
+                {record.netApy === null && record.grossApy !== null
+                  ? "Fees not sourced"
+                  : formatPercent(record.netApy)}
+              </td>
               <td>{formatRisk(record.riskScore)}</td>
               <td className="numeric">{formatUsd(record.aumTvlUsd)}</td>
               <td>{record.accessMethod.replaceAll("_", " ")}</td>

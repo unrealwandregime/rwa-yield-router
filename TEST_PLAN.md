@@ -165,6 +165,9 @@ Each test starts with migrated empty storage and cleans its isolated namespace.
 ### 6.2 Ingestion and jobs
 
 - discover, ingest, normalize, append observation, select snapshot, publish outbox, and run downstream recalculation;
+- for USDY, validate current/historical oracle ABI decoding, decimal-safe trailing-return
+  annualization, EVM and Solana supply normalization, route AUM, canonical identity rejection, and
+  the explicit absence of fabricated net-yield, liquidity, or risk observations;
 - preferred source success and every fallback level;
 - malformed, partial, oversized, wrong-content-type, slow, redirected, and rate-limited responses;
 - approved-host validation and blocked localhost, private-network, link-local, credential-bearing, and redirect destinations;

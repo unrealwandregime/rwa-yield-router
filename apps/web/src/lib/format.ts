@@ -24,7 +24,7 @@ export const formatPercent = (value: string | null): string => {
 };
 
 export const formatRisk = (value: string | null): string => {
-  if (value === null) return "Awaiting verification";
+  if (value === null) return "Not scored";
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return "Unavailable";
   if (parsed <= 20) return `${parsed.toFixed(0)} · Low`;
