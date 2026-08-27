@@ -44,7 +44,8 @@ ENV APP_URL=${APP_URL} \
 
 WORKDIR /app
 
-RUN rm -rf /usr/local/lib/node_modules/npm \
+RUN apk upgrade --no-cache libcrypto3=3.5.8-r0 libssl3=3.5.8-r0 && \
+    rm -rf /usr/local/lib/node_modules/npm \
     /usr/local/lib/node_modules/corepack \
     /usr/local/bin/npm \
     /usr/local/bin/npx \
