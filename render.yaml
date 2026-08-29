@@ -16,7 +16,7 @@ services:
     name: rwa-yield-router-web
     runtime: image
     image:
-      url: ghcr.io/unrealwandregime/rwa-yield-router-web:e18eb7836b9f8bb7dbcba59e9764296bd5dc158f
+      url: ghcr.io/unrealwandregime/rwa-yield-router-web:d4ece572f95ab98e4c13731814f2ccc10c6f31e5
     region: singapore
     plan: free
     healthCheckPath: /health/ready
@@ -62,7 +62,7 @@ services:
     name: rwa-yield-router-worker-preview
     runtime: image
     image:
-      url: ghcr.io/unrealwandregime/rwa-yield-router-worker:e18eb7836b9f8bb7dbcba59e9764296bd5dc158f
+      url: ghcr.io/unrealwandregime/rwa-yield-router-worker:d4ece572f95ab98e4c13731814f2ccc10c6f31e5
     region: singapore
     plan: free
     healthCheckPath: /health/ready
