@@ -16,7 +16,10 @@ export const createDatabase = (options: DatabaseOptions = {}) => {
   const connection = postgres(options.connectionString ?? readDatabaseUrl(), {
     connect_timeout: options.connectTimeoutSeconds ?? 5,
     idle_timeout: options.idleTimeoutSeconds ?? 20,
-    max: options.maxConnections ?? 10,
+    // Preview runs web and worker against Supabase's 15-session free pool. Three
+    // connections per process leaves room for both services and one overlapping
+    // zero-downtime deployment without exhausting the shared pool.
+    max: options.maxConnections ?? 3,
     onnotice: () => undefined,
     prepare: true
   });

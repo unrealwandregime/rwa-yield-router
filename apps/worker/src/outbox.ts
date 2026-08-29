@@ -73,6 +73,11 @@ export function startOutboxPump(
             .where(and(eq(jobOutbox.id, row.id), isNull(jobOutbox.publishedAt)));
         }
       }
+    } catch {
+      // A transient dependency failure must not become an unhandled rejection
+      // that terminates the worker. The bounded interval retries this flush;
+      // rows remain unpublished and auditable until a later success.
+      logger.error("outbox.flush_failed", { errorCategory: "DEPENDENCY_UNAVAILABLE" });
     } finally {
       running = false;
     }

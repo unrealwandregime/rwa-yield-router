@@ -80,6 +80,11 @@ The zero-cost dependency set is owner-provisioned and is not stored in the Bluep
 
 Official provider references: [Supabase connection modes](https://supabase.com/docs/guides/database/connecting-to-postgres), [Supabase Free limits](https://supabase.com/pricing), [Supabase backup guidance](https://supabase.com/docs/guides/platform/backups), [Upstash TLS](https://upstash.com/docs/redis/features/security), and [Upstash Free limits](https://upstash.com/pricing/redis).
 
+The runtime database client defaults to three connections per process. With one web process and
+one worker process this uses six session-mode connections, and a simultaneous zero-downtime rollout
+uses at most twelve, leaving headroom under the preview pool's 15-client limit. Do not raise this
+budget without accounting for every concurrently live and deploying process.
+
 ### Preview release gate
 
 Render Free cannot run the migration sequence before deployment. Before every preview rollout, run the gate once from an audited release workspace with `DATABASE_MIGRATION_URL` set to the Supabase direct TLS URL and `DATABASE_URL` set to the least-privilege session-pooler TLS URL:
