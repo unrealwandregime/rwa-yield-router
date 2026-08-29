@@ -27,7 +27,7 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 
-RUN apk upgrade --no-cache libcrypto3=3.5.8-r0 libssl3=3.5.8-r0 && \
+RUN apk upgrade --no-cache libcrypto3 libssl3 && \
     rm -rf /usr/local/lib/node_modules/npm \
     /usr/local/lib/node_modules/corepack \
     /usr/local/bin/npm \
